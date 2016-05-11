@@ -25,17 +25,17 @@ init([]) ->
         Arguments = bk_utils:lookup(connection_info, Params, []),
         NumberOfQueues = bk_utils:lookup(queues_number, Params, []),
         NumberOfConsumers = bk_utils:lookup(consumers_number, Params, []),
-        ConsumerRateLimiter = bk_utils:lookup(consumer_rate_limiter, Params, []),
+        ConsumerConcurrentJobs = bk_utils:lookup(consumer_concurrent_jobs, Params, []),
         ConsumerCallback = bk_utils:lookup(consumer_callback, Params, []),
 
-        jobs:delete_queue(Name),
-        ok = jobs:add_queue(Name, ConsumerRateLimiter),
+        ConsumerArgs = [{consumer_callback, ConsumerCallback}, {pool_name, Name}] ++ Arguments,
 
+        RatxSpecs = worker(ratx, [Name, [{limit, ConsumerConcurrentJobs}, {queue, 0}]]),
         QueueChildSpecs = worker(?BK_QUEUE_SUPERVISOR, [Name, NumberOfQueues, Arguments]),
-        ConsumerChildSpecs = worker(?BK_CONSUMER_SUPERVISOR, [Name, NumberOfConsumers, [{consumer_callback, ConsumerCallback} | Arguments]]),
+        ConsumerChildSpecs = worker(?BK_CONSUMER_SUPERVISOR, [Name, NumberOfConsumers, ConsumerArgs]),
         QueuePool = worker(revolver, [?BK_QUEUE_SUPERVISOR, ?BK_QUEUE_POOL, RevolverOptions]),
 
-        [QueueChildSpecs | [QueuePool | [ConsumerChildSpecs | Acc]]]
+        [RatxSpecs | [QueueChildSpecs | [QueuePool | [ConsumerChildSpecs | Acc]]]]
     end,
 
     {ok, {{one_for_one, 1000, 1}, lists:foldl(Fun, [], Pools)}}.

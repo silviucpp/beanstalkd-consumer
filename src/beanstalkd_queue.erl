@@ -7,7 +7,7 @@
 
 -define(PUSH_JOB(Job), {push_job, Job}).
 
--export([start_link/1, delete/2]).
+-export([start_link/1, delete/2, kick_job/2]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
@@ -18,6 +18,9 @@ start_link(Args) ->
 
 delete(Pid, JobId) ->
     gen_server:call(Pid, ?PUSH_JOB({delete, JobId})).
+
+kick_job(Pid, JobId)->
+    gen_server:call(Pid, ?PUSH_JOB({kick_job, JobId})).
 
 init(Args) ->
     {ok, Connection} = beanstalk:connect([{monitor, self()} | Args]),
@@ -100,6 +103,14 @@ run_job(Connection, {JobType, JobId} = Job) ->
 run_job(delete, Connection, JobId) ->
     case beanstalk:delete(Connection, JobId) of
         {deleted} ->
+            true;
+        Result ->
+            Result
+    end;
+
+run_job(kick_job, Connection, JobId) ->
+    case beanstalk:kick_job(Connection, JobId) of
+        {kicked} ->
             true;
         Result ->
             Result

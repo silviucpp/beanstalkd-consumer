@@ -44,8 +44,12 @@ handle_info(timeout, State) ->
         up ->
             case get_job(State#state.connection) of
                 {ok, JobId, JobPayload} ->
-                    process_job(State, JobId, JobPayload),
-                    {noreply, State, 0};
+                    case process_job(State, JobId, JobPayload) of
+                        sent ->
+                            {noreply, State, 0};
+                        dropped ->
+                            {noreply, State, 3000}
+                    end;
                 _ ->
                     {noreply, State, 0}
             end;
@@ -97,18 +101,28 @@ get_job(Connection) ->
     end.
 
 process_job(State, JobId, JobPayload) ->
-    Fun = fun() ->
-        try
-            Module = State#state.job_module,
-            Fun = State#state.job_fun,
-            ok = Module:Fun(JobId, JobPayload),
-            ok = beanstalkd_queue_pool:delete(JobId)
-        catch
-            _: {error, bad_payload, Reason} ->
-                ?ERROR_MSG(<<"delete malformated job payload id: ~p reason: ~p payload: ~p">>, [JobId, Reason, JobPayload]),
-                ok = beanstalkd_queue_pool:delete(JobId);
-            _: Response ->
-                ?ERROR_MSG(<<"Job will stay in buried state id: ~p payload: ~p response: ~p">>, [JobId, JobPayload, Response])
-        end
-    end,
-    spawn(Fun).
+    case ratx:ask(State#state.pool_name) of
+        drop ->
+            ?WARNING_MSG(<<"drop message: ~p ~p">>,[JobId, JobPayload]),
+            ok = beanstalkd_queue_pool:kick_job(JobId),
+            dropped;
+        Ref when is_reference(Ref) ->
+            JobFun = fun() ->
+                try
+                    Module = State#state.job_module,
+                    Fun = State#state.job_fun,
+                    ok = Module:Fun(JobId, JobPayload),
+                    ok = beanstalkd_queue_pool:delete(JobId)
+                catch
+                    _: {error, bad_payload, Reason} ->
+                        ?ERROR_MSG(<<"delete malformated job payload id: ~p reason: ~p payload: ~p">>, [JobId, Reason, JobPayload]),
+                        ok = beanstalkd_queue_pool:delete(JobId);
+                    _: Response ->
+                        ?ERROR_MSG(<<"Job will stay in buried state id: ~p payload: ~p response: ~p">>, [JobId, JobPayload, Response])
+                after
+                    ok = ratx:done(State#state.pool_name)
+                end
+            end,
+            spawn(JobFun),
+            sent
+    end.
