@@ -1,0 +1,12 @@
+{application, beanstalkd_consumer,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { beanstalkd_consumer_app, []}},
+  {env, []}
+ ]}.
