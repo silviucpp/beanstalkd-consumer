@@ -131,7 +131,7 @@ process_job(State, JobId, JobPayload) ->
                     ok = Module:Fun(JobId, JobPayload),
                     ok = beanstalkd_queue_pool:delete(State#state.queue_pool_name, JobId)
                 catch
-                    _: {error, bad_payload, Reason} ->
+                    _: {bad_argument, Reason} ->
                         ?ERROR_MSG(<<"delete malformated job payload id: ~p reason: ~p payload: ~p">>, [JobId, Reason, JobPayload]),
                         ok = beanstalkd_queue_pool:delete(State#state.queue_pool_name, JobId);
                     _: Response ->
