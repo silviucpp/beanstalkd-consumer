@@ -1,4 +1,3 @@
 
--define(BK_QUEUE_POOL, bk_queue_pool).
--define(BK_QUEUE_SUPERVISOR, beanstalkd_queue_supervisor).
--define(BK_CONSUMER_SUPERVISOR, beanstalkd_consumer_supervisor).
+-define(BK_POOL_QUEUE(Name), binary_to_atom(<<"bk_pool_queue_", Name/binary>>, utf8)).
+-define(BK_POOL_CONSUMER(Name), binary_to_atom(<<"bk_pool_consumer_", Name/binary>>, utf8)).

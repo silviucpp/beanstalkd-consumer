@@ -6,16 +6,21 @@
 
 -behaviour(gen_server).
 
--export([start_link/1]).
+-export([start_link/1, stop/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {
+    active,
     connection,
     connection_state,
     pool_name,
+    queue_pool_name,
     job_module,
     job_fun}).
+
+stop(Pid) ->
+    gen_server:cast(Pid, stop).
 
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
@@ -23,12 +28,17 @@ start_link(Args) ->
 init(Args) ->
     process_flag(trap_exit, true),
 
+    QueuePoolName = bk_utils:lookup(queue_pool_name, Args),
     PoolName = bk_utils:lookup(pool_name, Args),
 
     case bk_utils:lookup(consumer_callback, Args) of
         {Module, Fun} ->
-            {ok, Q} = beanstalk:connect([{monitor, self()} | Args]),
-            {ok, #state{connection = Q, connection_state = down, pool_name = PoolName, job_module = Module, job_fun = Fun}};
+
+            Tube = bk_utils:get_tube(consumer, bk_utils:lookup(tube, Args)),
+            ArgsNew = lists:keyreplace(tube, 1, Args, {tube, Tube}),
+
+            {ok, Q} = beanstalk:connect([{monitor, self()} | ArgsNew]),
+            {ok, #state{active = true, connection = Q, connection_state = down, queue_pool_name = QueuePoolName, pool_name = PoolName, job_module = Module, job_fun = Fun}};
         _ ->
             throw({error, callback_bad_argument})
     end.
@@ -36,25 +46,36 @@ init(Args) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
+handle_cast(stop, State) ->
+    {noreply, State#state{active = false}};
+
 handle_cast(_Request, State) ->
     {noreply, State}.
 
 handle_info(timeout, State) ->
-    case State#state.connection_state of
-        up ->
-            case get_job(State#state.connection) of
-                {ok, JobId, JobPayload} ->
-                    case process_job(State, JobId, JobPayload) of
-                        sent ->
+    case State#state.active of
+        true ->
+            case State#state.connection_state of
+                up ->
+                    case get_job(State#state.connection) of
+                        timed_out ->
                             {noreply, State, 0};
-                        dropped ->
-                            {noreply, State, 3000}
+                        {ok, JobId, JobPayload} ->
+                            case process_job(State, JobId, JobPayload) of
+                                sent ->
+                                    {noreply, State, 0};
+                                dropped ->
+                                    {noreply, State, 3000}
+                            end;
+                        _ ->
+                            {noreply, State, 0}
                     end;
                 _ ->
-                    {noreply, State, 0}
+                    {noreply, State}
             end;
         _ ->
-            {noreply, State}
+            ?INFO_MSG(<<"Stop the consumer....">>, []),
+            {stop, normal, State}
     end;
 
 handle_info({connection_status, up}, State) ->
@@ -86,7 +107,9 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 get_job(Connection) ->
-    case beanstalk:reserve(Connection) of
+    case beanstalk:reserve(Connection, 1) of
+        {timed_out} ->
+            timed_out;
         {reserved, JobId, JobPayload} ->
             case beanstalk:bury(Connection, JobId) of
                 {buried} ->
@@ -104,7 +127,7 @@ process_job(State, JobId, JobPayload) ->
     case ratx:ask(State#state.pool_name) of
         drop ->
             ?WARNING_MSG(<<"drop message: ~p ~p">>,[JobId, JobPayload]),
-            ok = beanstalkd_queue_pool:kick_job(JobId),
+            ok = beanstalkd_queue_pool:kick_job(State#state.queue_pool_name, JobId),
             dropped;
         Ref when is_reference(Ref) ->
             JobFun = fun() ->
@@ -112,11 +135,11 @@ process_job(State, JobId, JobPayload) ->
                     Module = State#state.job_module,
                     Fun = State#state.job_fun,
                     ok = Module:Fun(JobId, JobPayload),
-                    ok = beanstalkd_queue_pool:delete(JobId)
+                    ok = beanstalkd_queue_pool:delete(State#state.queue_pool_name, JobId)
                 catch
                     _: {error, bad_payload, Reason} ->
                         ?ERROR_MSG(<<"delete malformated job payload id: ~p reason: ~p payload: ~p">>, [JobId, Reason, JobPayload]),
-                        ok = beanstalkd_queue_pool:delete(JobId);
+                        ok = beanstalkd_queue_pool:delete(State#state.queue_pool_name, JobId);
                     _: Response ->
                         ?ERROR_MSG(<<"Job will stay in buried state id: ~p payload: ~p response: ~p">>, [JobId, JobPayload, Response])
                 after

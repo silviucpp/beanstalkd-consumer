@@ -1,5 +1,7 @@
 -module(beanstalkd_consumer_app).
 
+-include("beanstalkd_consumer.hrl").
+
 -behaviour(application).
 
 -export([start/2, stop/1]).
@@ -12,6 +14,14 @@ start(_StartType, _StartArgs) ->
     beanstalkd_consumer_sup:start_link().
 
 stop(_State) ->
+
+    Pools = bk_utils:get_env(pools),
+
+    StopFun = fun({Name, _}) ->
+        revolver:map(?BK_POOL_CONSUMER(Name), fun(Pid) -> beanstalkd_consumer:stop(Pid) end)
+    end,
+
+    lists:foreach(StopFun, Pools),
     ok.
 
 load_code(Arg) ->

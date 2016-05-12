@@ -23,7 +23,10 @@ kick_job(Pid, JobId)->
     gen_server:call(Pid, ?PUSH_JOB({kick_job, JobId})).
 
 init(Args) ->
-    {ok, Connection} = beanstalk:connect([{monitor, self()} | Args]),
+    Tube = bk_utils:get_tube(client, bk_utils:lookup(tube, Args)),
+    ArgsNew = lists:keyreplace(tube, 1, Args, {tube, Tube}),
+
+    {ok, Connection} = beanstalk:connect([{monitor, self()} | ArgsNew]),
     {ok, #state{connection_state = down, connection = Connection, job_queue = []}}.
 
 handle_call({push_job, Job}, _From, State) ->
