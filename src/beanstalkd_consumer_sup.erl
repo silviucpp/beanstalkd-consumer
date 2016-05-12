@@ -5,6 +5,10 @@
 -define(BK_SUPERVISOR_QUEUE(Name), binary_to_atom(<<"bk_sup_queue_", Name/binary>>, utf8)).
 -define(BK_SUPERVISOR_CONSUMER(Name), binary_to_atom(<<"bk_sup_consumer_", Name/binary>>, utf8)).
 
+-define(DEFAULT_QUEUES_PER_POOL, 1).
+-define(DEFAULT_CONSUMERS_PER_POOL, 1).
+-define(DEFAULT_CONCURRENCY, 1).
+
 -behaviour(supervisor).
 
 -export([start_link/0]).
@@ -30,10 +34,10 @@ init([]) ->
         QueuePoolName = ?BK_POOL_QUEUE(BinName),
 
         Arguments = bk_utils:lookup(connection_info, Params, []),
-        NumberOfQueues = bk_utils:lookup(queues_number, Params, []),
-        NumberOfConsumers = bk_utils:lookup(consumers_number, Params, []),
-        ConsumerConcurrentJobs = bk_utils:lookup(consumer_concurrent_jobs, Params, []),
-        ConsumerCallback = bk_utils:lookup(consumer_callback, Params, []),
+        NumberOfQueues = bk_utils:lookup(queues_number, Params, ?DEFAULT_QUEUES_PER_POOL),
+        NumberOfConsumers = bk_utils:lookup(consumers_number, Params, ?DEFAULT_CONSUMERS_PER_POOL),
+        ConsumerConcurrentJobs = bk_utils:lookup(consumer_concurrent_jobs, Params, ?DEFAULT_CONCURRENCY),
+        ConsumerCallback = bk_utils:lookup(consumer_callback, Params),
         ConsumerArgs = [{consumer_callback, ConsumerCallback}, {queue_pool_name, QueuePoolName}, {pool_name, AtomName}] ++ Arguments,
         RatxArgs = [AtomName, [{limit, ConsumerConcurrentJobs}, {queue, 0}]],
 
