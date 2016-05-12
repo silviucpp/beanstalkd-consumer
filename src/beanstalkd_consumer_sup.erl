@@ -18,7 +18,7 @@ init([]) ->
 
     RevolverOptions = #{
         min_alive_ratio          => 1,
-        reconnect_delay          => 1000,
+        reconnect_delay          => 10000,
         max_message_queue_length => undefined,
         connect_at_start         => true
     },

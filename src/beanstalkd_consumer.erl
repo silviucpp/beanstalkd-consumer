@@ -11,7 +11,6 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {
-    active,
     connection,
     connection_state,
     pool_name,
@@ -38,7 +37,7 @@ init(Args) ->
             ArgsNew = lists:keyreplace(tube, 1, Args, {tube, Tube}),
 
             {ok, Q} = beanstalk:connect([{monitor, self()} | ArgsNew]),
-            {ok, #state{active = true, connection = Q, connection_state = down, queue_pool_name = QueuePoolName, pool_name = PoolName, job_module = Module, job_fun = Fun}};
+            {ok, #state{connection = Q, connection_state = down, queue_pool_name = QueuePoolName, pool_name = PoolName, job_module = Module, job_fun = Fun}};
         _ ->
             throw({error, callback_bad_argument})
     end.
@@ -47,35 +46,30 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(stop, State) ->
-    {noreply, State#state{active = false}};
+    ?INFO_MSG(<<"Consumer for ~p will go in stop state">>, [State#state.pool_name]),
+    {stop, normal, State};
 
 handle_cast(_Request, State) ->
     {noreply, State}.
 
 handle_info(timeout, State) ->
-    case State#state.active of
-        true ->
-            case State#state.connection_state of
-                up ->
-                    case get_job(State#state.connection) of
-                        timed_out ->
+    case State#state.connection_state of
+        up ->
+            case get_job(State#state.connection) of
+                timed_out ->
+                    {noreply, State, 0};
+                {ok, JobId, JobPayload} ->
+                    case process_job(State, JobId, JobPayload) of
+                        sent ->
                             {noreply, State, 0};
-                        {ok, JobId, JobPayload} ->
-                            case process_job(State, JobId, JobPayload) of
-                                sent ->
-                                    {noreply, State, 0};
-                                dropped ->
-                                    {noreply, State, 3000}
-                            end;
-                        _ ->
-                            {noreply, State, 0}
+                        dropped ->
+                            {noreply, State, 3000}
                     end;
                 _ ->
-                    {noreply, State}
+                    {noreply, State, 0}
             end;
         _ ->
-            ?INFO_MSG(<<"Stop the consumer....">>, []),
-            {stop, normal, State}
+            {noreply, State}
     end;
 
 handle_info({connection_status, up}, State) ->

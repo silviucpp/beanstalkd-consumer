@@ -6,9 +6,9 @@ Idea behind the project
 -----------------------
 
 - An easy and configurable app that it's starting a pool of consumers which executes jobs from a beanstalkd server.
-- You can tune the concurrency and rate limit the number of jobs that are executed in parallel (todo: rate limiter)
+- You can tune the concurrency of jobs that are executed in parallel
 - In case the connection between consumer and server goes down minimise the damage (jobs being cached by another consumer and executed again for example).
-- In case the consumer is stopped will wait for all jobs in progress to complete. (todo)
+- In case the consumer is stopped will wait for all jobs in progress to complete.
 
 What's the lifetime of a job
 ----------------------------

@@ -7,14 +7,17 @@
 
 -define(PUSH_JOB(Job), {push_job, Job}).
 
--export([start_link/1, delete/2, kick_job/2]).
+-export([start_link/1, jobs_queued/1, delete/2, kick_job/2]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--record(state, {job_queue, connection, connection_state}).
+-record(state, {queue, queue_size, connection, connection_state}).
 
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
+
+jobs_queued(Pid) ->
+    gen_server:call(Pid, queue_size).
 
 delete(Pid, JobId) ->
     gen_server:call(Pid, ?PUSH_JOB({delete, JobId})).
@@ -27,12 +30,15 @@ init(Args) ->
     ArgsNew = lists:keyreplace(tube, 1, Args, {tube, Tube}),
 
     {ok, Connection} = beanstalk:connect([{monitor, self()} | ArgsNew]),
-    {ok, #state{connection_state = down, connection = Connection, job_queue = []}}.
+    {ok, #state{connection_state = down, connection = Connection, queue = [], queue_size = 0}}.
 
 handle_call({push_job, Job}, _From, State) ->
-    NewState = State#state{job_queue = [Job | State#state.job_queue]},
+    NewState = State#state{queue = [Job | State#state.queue], queue_size = State#state.queue_size + 1 },
     Timeout = get_timeout(NewState),
     {reply, ok, NewState, Timeout};
+
+handle_call(queue_size, _From, State) ->
+    {reply, {ok, State#state.queue_size}, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -75,11 +81,11 @@ code_change(_OldVsn, State, _Extra) ->
 consume_job_queue(State) ->
     case State#state.connection_state of
         up ->
-            case State#state.job_queue of
+            case State#state.queue of
                 [H|T] ->
                     case run_job(State#state.connection, H) of
                         true ->
-                            {noreply, State#state{job_queue = T}, get_timeout(T)};
+                            {noreply, State#state{queue = T, queue_size = State#state.queue_size - 1}, get_timeout(T)};
                         _ ->
                             {noreply, State, 0}
                     end;
@@ -122,7 +128,7 @@ run_job(kick_job, Connection, JobId) ->
 get_timeout(State) when is_record(State, state) ->
     case State#state.connection_state of
         up ->
-            get_timeout(State#state.job_queue);
+            get_timeout(State#state.queue);
         _ ->
             infinity
     end;
