@@ -72,11 +72,11 @@ handle_info(timeout, State) ->
             {noreply, State}
     end;
 
-handle_info({connection_status, up}, State) ->
+handle_info({connection_status, {up, _Pid}}, State) ->
     ?INFO_MSG(<<"received connection up">>,[]),
     {noreply, State#state{connection_state = up}, 0};
 
-handle_info({connection_status, down}, State) ->
+handle_info({connection_status, {down, _Pid}}, State) ->
     ?INFO_MSG(<<"received connection down">>,[]),
     {noreply, State#state{connection_state = down}};
 

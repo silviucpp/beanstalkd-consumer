@@ -49,12 +49,12 @@ handle_cast(_Request, State) ->
 handle_info(timeout, State) ->
     consume_job_queue(State);
 
-handle_info({connection_status, up}, State) ->
+handle_info({connection_status, {up, _Pid}}, State) ->
     ?INFO_MSG(<<"received connection up">>,[]),
     NewState = State#state{connection_state = up},
     {noreply, NewState, get_timeout(NewState)};
 
-handle_info({connection_status, down}, State) ->
+handle_info({connection_status, {down, _Pid}}, State) ->
     ?INFO_MSG(<<"received connection down">>,[]),
     {noreply, State#state{connection_state = down}};
 
