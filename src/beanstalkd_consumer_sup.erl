@@ -18,41 +18,57 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Pools = bk_utils:get_env(pools),
+    ServersFun = fun({ServerName, Params}, Acc) ->
+        BinServerName = atom_to_binary(ServerName, utf8),
+        ConnectionInfo = bk_utils:lookup(connection_info, Params, []),
+        NumberOfQueues = bk_utils:lookup(queues_number, Params, ?DEFAULT_QUEUES_PER_POOL),
+        ConsumersList = bk_utils:lookup(consumers, Params),
 
-    RevolverOptions = #{
+        QueuesSpecs = create_queues(BinServerName, ConnectionInfo, NumberOfQueues),
+        ConsumersSpecs = lists:foldl(fun({ConsumerName, Params}, Acc) -> create_consumers(BinServerName, ConsumerName, ConnectionInfo, Params) ++ Acc end, [], ConsumersList),
+
+        QueuesSpecs ++ ConsumersSpecs ++ Acc
+    end,
+
+    Servers = bk_utils:get_env(servers),
+
+    {ok, {{one_for_one, 1000, 1}, lists:foldl(ServersFun, [], Servers)}}.
+
+revolver_options() ->
+    #{
         min_alive_ratio          => 1,
         reconnect_delay          => 10000,
         max_message_queue_length => undefined,
         connect_at_start         => true
-    },
+    }.
 
-    Fun = fun({AtomName, Params}, Acc) ->
+create_queues(ServerName, ConnectionInfo, Instances) ->
+    QueuePoolName = ?BK_POOL_QUEUE(ServerName),
+    QueueSupervisorName = ?BK_SUPERVISOR_QUEUE(ServerName),
 
-        BinName = atom_to_binary(AtomName, utf8),
-        ConsumerPoolName = ?BK_POOL_CONSUMER(BinName),
-        QueuePoolName = ?BK_POOL_QUEUE(BinName),
+    QueueChildSpecs =  worker(QueueSupervisorName, beanstalkd_worker_supervisor, [QueueSupervisorName, beanstalkd_queue, ServerName, Instances, ConnectionInfo]),
+    QueuePool = worker(<<"queue_revolver_", ServerName/binary>>, revolver, [QueueSupervisorName, QueuePoolName, revolver_options()]),
+    [QueueChildSpecs, QueuePool].
 
-        Arguments = bk_utils:lookup(connection_info, Params, []),
-        NumberOfQueues = bk_utils:lookup(queues_number, Params, ?DEFAULT_QUEUES_PER_POOL),
-        NumberOfConsumers = bk_utils:lookup(consumers_number, Params, ?DEFAULT_CONSUMERS_PER_POOL),
-        ConsumerConcurrentJobs = bk_utils:lookup(consumer_concurrent_jobs, Params, ?DEFAULT_CONCURRENCY),
-        ConsumerCallback = bk_utils:lookup(consumer_callback, Params),
-        ConsumerArgs = [{consumer_callback, ConsumerCallback}, {queue_pool_name, QueuePoolName}, {pool_name, AtomName}] ++ Arguments,
-        RatxArgs = [AtomName, [{limit, ConsumerConcurrentJobs}, {queue, 0}]],
+create_consumers(ServerName, ConsumerName, ConnectionInfo, Params) ->
+    ConsumerNameBin = atom_to_binary(ConsumerName, utf8),
+    Identifier = <<ServerName/binary, "_", ConsumerNameBin/binary>>,
+    IdentifierAtom = binary_to_atom(Identifier, utf8),
 
-        QueueSupervisorName = ?BK_SUPERVISOR_QUEUE(BinName),
-        ConsumerSupervisorName = ?BK_SUPERVISOR_CONSUMER(BinName),
+    ConsumerSupervisorName = ?BK_SUPERVISOR_CONSUMER(Identifier),
 
-        RatxSpecs = worker(<<"rtx_", BinName/binary>>, ratx, RatxArgs),
-        QueueChildSpecs =  worker(QueueSupervisorName, beanstalkd_worker_supervisor, [QueueSupervisorName, beanstalkd_queue, BinName, NumberOfQueues, Arguments]),
-        ConsumerChildSpecs = worker(ConsumerSupervisorName, beanstalkd_worker_supervisor, [ConsumerSupervisorName, beanstalkd_consumer, BinName, NumberOfConsumers, ConsumerArgs]),
-        QueuePool = worker(<<"queue_revolver_", BinName/binary>>, revolver, [QueueSupervisorName, QueuePoolName, RevolverOptions]),
-        ConsumerPool = worker(<<"consumer_revolver_", BinName/binary>>, revolver, [ConsumerSupervisorName, ConsumerPoolName, RevolverOptions]),
-        [RatxSpecs | [QueueChildSpecs | [QueuePool | [ConsumerChildSpecs | [ConsumerPool | Acc]]]]]
-    end,
+    Instances = bk_utils:lookup(instances, Params, ?DEFAULT_CONSUMERS_PER_POOL),
+    ConcurrentJobs = bk_utils:lookup(concurrent_jobs, Params, ?DEFAULT_CONCURRENCY),
+    Callback = bk_utils:lookup(callback, Params),
+    Tubes = bk_utils:lookup(tubes, Params),
 
-    {ok, {{one_for_one, 1000, 1}, lists:foldl(Fun, [], Pools)}}.
+    ConsumerArgs = [{consumer_callback, Callback}, {queue_pool_name, ?BK_POOL_QUEUE(ServerName)}, {pool_name, IdentifierAtom}] ++ [{tube, Tubes}|ConnectionInfo],
+    RatxArgs = [IdentifierAtom, [{limit, ConcurrentJobs}, {queue, 0}]],
+
+    RatxSpecs = worker(<<"rtx_", Identifier/binary>>, ratx, RatxArgs),
+    ConsumerChildSpecs = worker(ConsumerSupervisorName, beanstalkd_worker_supervisor, [ConsumerSupervisorName, beanstalkd_consumer, Identifier, Instances, ConsumerArgs]),
+    ConsumerPool = worker(<<"consumer_revolver_", Identifier/binary>>, revolver, [ConsumerSupervisorName, ?BK_POOL_CONSUMER(Identifier), revolver_options()]),
+    [RatxSpecs , ConsumerChildSpecs , ConsumerPool].
 
 worker(Name, Module, Args) ->
     worker(Name, Module, 5000, Args).

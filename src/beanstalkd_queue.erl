@@ -99,7 +99,7 @@ consume_job_queue(State) ->
 run_job(Connection, {JobType, JobId} = Job) ->
     case run_job(JobType, Connection, JobId) of
         true ->
-            ?INFO_MSG(<<"job completed : ~p">>,[Job]),
+            ?DEBUG_MSG(<<"job completed : ~p">>,[Job]),
             true;
         {not_found} ->
             ?WARNING_MSG(<<"job not found: ~p">>,[Job]),

@@ -37,13 +37,19 @@ Use a config similar with:
 ```erlang
 [
     {beanstalkd_consumer, [
-        {pools, [
-            {default_pool, [
-                {connection_info, [{host, {127,0,0,1}}, {port, 11300}, {timeout, 5000}, {tube, undefined}]},
+
+        {servers, [
+            {default_server, [
+                {connection_info, [{host, {127,0,0,1}}, {port, 11300}, {timeout, 5000}]},
                 {queues_number, 1},
-                {consumers_number, 1},
-                {consumer_callback, {test,process}},
-                {consumer_concurrent_jobs, 10}
+                {consumers, [
+                    {consumer_silviu, [
+                        {tubes, <<"silviu">>},
+                        {instances, 1},
+                        {callback, {test,process}},
+                        {concurrent_jobs, 100000}
+                    ]}
+                ]}
             ]}
         ]}
     ]
@@ -52,13 +58,17 @@ Use a config similar with:
 
 Where
 
+- `connection_info` - connection details
 - `queues_number` - number of processes that will handle the deletes and kick operations. Those are queued in case the 
 connection to the server is not up and are sent again once connection is established.
-- `consumers_number` - number of processes that are handle-ing the reserving process
-- `consumer_callback` - the module and function that will receive the reserved job
-- `consumer_concurrent_jobs` - how many concurrent jobs can run in parallel.
+
+For each consumer:
+
+- `tubes` - The tube/list of tubes that will watch
+- `instances` - number of consumers
+- `callbacks` - the module and function/2 that will handle the jobs.
+- `concurrent_jobs` - how many concurrent jobs can run in parallel.
 
 ```erlang
 application:start(beanstalkd_consumer).
 ```
-
