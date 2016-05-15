@@ -136,7 +136,7 @@ process_job(State, JobId, JobPayload) ->
                 try
                     Module = State#state.job_module,
                     Fun = State#state.job_fun,
-                    ok = Module:Fun(JobId, JobPayload, State#state.user_state),
+                    Module:Fun(JobId, JobPayload, State#state.user_state),
                     ok = beanstalkd_queue_pool:delete(State#state.queue_pool_name, JobId)
                 catch
                     _: {bad_argument, Reason} ->

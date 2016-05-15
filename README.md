@@ -14,7 +14,7 @@ What's the lifetime of a job
 ----------------------------
 
 - Once a job is reserved before being sent to be processed is buried first. 
-- In case the processing was completed fine (processing callback returns `ok`) then the job is deleted 
+- In case the processing was completed fine (no exception triggered) then the job is deleted 
 - In case job processing is failing is left in the buried state. 
 - In case for some reason the job was not scheduled (processing limits hit or any other reason) the job is scheduled again for being processed (kick-job).
 - All delete/kick operations are taking place on another processes where are queued so in case connection to the server goes down the operations are not lost.
@@ -30,8 +30,7 @@ Define a module with a function with arity 3 that will process the jobs and one 
 init(Pid) ->
     [{<<"arg1">>, <<"val1">>}, {<<"arg2">>, <<"val2">>}].
 process(Id, Payload, State) ->
-    io:format(<<"id:~p job:~p state:~p ~n">>, [Id, Payload, State]),
-    ok.
+    io:format(<<"id:~p job:~p state:~p ~n">>, [Id, Payload, State]).
 ```
 
 Use a config similar with:
