@@ -22,13 +22,15 @@ What's the lifetime of a job
 Quick start
 -----------
 
-Define a module with a function with arity 2 for example:
+Define a module with a function with arity 3 that will process the jobs and one with arity one used for init process for example:
 
 ```erlang
 -module(test).
--export([process/2]).
-process(Id, Payload) ->
-    io:format(<<"id:~p job:~p ~n">>, [Id, Payload]),
+-export([init/1, process/2]).
+init(Pid) ->
+    [{<<"arg1">>, <<"val1">>}, {<<"arg2">>, <<"val2">>}].
+process(Id, Payload, State) ->
+    io:format(<<"id:~p job:~p state:~p ~n">>, [Id, Payload, State]),
     ok.
 ```
 
@@ -46,7 +48,7 @@ Use a config similar with:
                     {consumer_silviu, [
                         {tubes, <<"silviu">>},
                         {instances, 1},
-                        {callback, {test,process}},
+                        {callbacks,  {test, init, process}},
                         {concurrent_jobs, 100000}
                     ]}
                 ]}
@@ -66,7 +68,7 @@ For each consumer:
 
 - `tubes` - The tube/list of tubes that will watch
 - `instances` - number of consumers
-- `callbacks` - the module and function/2 that will handle the jobs.
+- `callbacks` - `{Module, InitFun/1, ProcessFun/3}`. the module followed by init function and the function that will handle the jobs.
 - `concurrent_jobs` - how many concurrent jobs can run in parallel.
 
 ```erlang

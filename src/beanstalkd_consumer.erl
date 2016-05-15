@@ -15,6 +15,7 @@
     connection_state,
     pool_name,
     queue_pool_name,
+    user_state,
     job_module,
     job_fun}).
 
@@ -30,16 +31,23 @@ init(Args) ->
     QueuePoolName = bk_utils:lookup(queue_pool_name, Args),
     PoolName = bk_utils:lookup(pool_name, Args),
 
-    case bk_utils:lookup(consumer_callback, Args) of
-        {Module, Fun} ->
-
+    case bk_utils:lookup(callbacks, Args) of
+        {Module, InitFun, JobFun} ->
+            UserState = Module:InitFun(self()),
             Tube = bk_utils:get_tube(consumer, bk_utils:lookup(tube, Args)),
             ArgsNew = lists:keyreplace(tube, 1, Args, {tube, Tube}),
 
             {ok, Q} = beanstalk:connect([{monitor, self()} | ArgsNew]),
-            {ok, #state{connection = Q, connection_state = down, queue_pool_name = QueuePoolName, pool_name = PoolName, job_module = Module, job_fun = Fun}};
+            {ok, #state{connection = Q,
+                        connection_state = down,
+                        queue_pool_name = QueuePoolName,
+                        pool_name = PoolName,
+                        user_state = UserState,
+                        job_module = Module,
+                        job_fun = JobFun
+            }};
         _ ->
-            throw({error, callback_bad_argument})
+            throw({error, fun_process_bad_argument})
     end.
 
 handle_call(_Request, _From, State) ->
@@ -128,7 +136,7 @@ process_job(State, JobId, JobPayload) ->
                 try
                     Module = State#state.job_module,
                     Fun = State#state.job_fun,
-                    ok = Module:Fun(JobId, JobPayload),
+                    ok = Module:Fun(JobId, JobPayload, State#state.user_state),
                     ok = beanstalkd_queue_pool:delete(State#state.queue_pool_name, JobId)
                 catch
                     _: {bad_argument, Reason} ->

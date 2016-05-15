@@ -59,10 +59,10 @@ create_consumers(ServerName, ConsumerName, ConnectionInfo, Params) ->
 
     Instances = bk_utils:lookup(instances, Params, ?DEFAULT_CONSUMERS_PER_POOL),
     ConcurrentJobs = bk_utils:lookup(concurrent_jobs, Params, ?DEFAULT_CONCURRENCY),
-    Callback = bk_utils:lookup(callback, Params),
+    Callbacks = bk_utils:lookup(callbacks, Params),
     Tubes = bk_utils:lookup(tubes, Params),
 
-    ConsumerArgs = [{consumer_callback, Callback}, {queue_pool_name, ?BK_POOL_QUEUE(ServerName)}, {pool_name, IdentifierAtom}] ++ [{tube, Tubes}|ConnectionInfo],
+    ConsumerArgs = [{callbacks, Callbacks}, {queue_pool_name, ?BK_POOL_QUEUE(ServerName)}, {pool_name, IdentifierAtom}] ++ [{tube, Tubes}|ConnectionInfo],
     RatxArgs = [IdentifierAtom, [{limit, ConcurrentJobs}, {queue, 0}]],
 
     RatxSpecs = worker(<<"rtx_", Identifier/binary>>, ratx, RatxArgs),
