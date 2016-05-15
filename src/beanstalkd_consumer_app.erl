@@ -16,26 +16,39 @@ start(_StartType, _StartArgs) ->
 
 prep_stop(_State) ->
 
-    Pools = bk_utils:get_env(pools),
+    Servers = bk_utils:get_env(servers),
+
+    ExtractIdentifiersFun = fun({ServerName, Params}, AccFinal) ->
+        ServerNameBin = atom_to_binary(ServerName, utf8),
+        ConsumersList = bk_utils:lookup(consumers, Params),
+
+        Fun = fun({ConsumerName, _}, Acc) ->
+            ConsumerNameBin = atom_to_binary(ConsumerName, utf8),
+            Identifier = <<ServerNameBin/binary, "_", ConsumerNameBin/binary>>,
+            [Identifier | Acc]
+        end,
+
+        lists:foldl(Fun, [], ConsumersList) ++ AccFinal
+    end,
+
+    Consumers = lists:foldl(ExtractIdentifiersFun, [], Servers),
 
     %send the stop message to avoid reserving new jobs
 
-    StopFun = fun({Name, _}) ->
-        NameBin = atom_to_binary(Name, utf8),
-        Pids = revolver:map(?BK_POOL_CONSUMER(NameBin), fun(Pid) -> Pid end),
-
+    StopFun = fun(ConsumerId) ->
+        Pids = revolver:map(?BK_POOL_CONSUMER(ConsumerId), fun(Pid) -> Pid end),
         lists:foreach(fun(Pid) -> beanstalkd_consumer:stop(Pid) end, Pids)
     end,
 
-    lists:foreach(StopFun, Pools),
+    lists:foreach(StopFun, Consumers),
 
     %wait for all consumers to stop
 
-    lists:foreach(fun({Name, _}) -> NameBin = atom_to_binary(Name, utf8), wait_for_consumers(Name, ?BK_POOL_CONSUMER(NameBin)) end , Pools),
+    lists:foreach(fun(ConsumerId) -> wait_for_consumers(?BK_POOL_CONSUMER(ConsumerId)) end , Consumers),
 
     %%wait until all running jobs will complete
 
-    lists:foreach(fun({Name, _}) -> wait_for_jobs(Name) end, Pools),
+    lists:foreach(fun(ConsumerId) -> wait_for_jobs(binary_to_atom(ConsumerId, utf8)) end, Consumers),
 
     %%wait all queues to be cleared before stopping
 
@@ -45,7 +58,7 @@ prep_stop(_State) ->
         lists:foreach(fun(Pid) ->  wait_for_queue(Name, Pid) end, Pids)
     end,
 
-    lists:foreach(WaitQueuesFun, Pools).
+    lists:foreach(WaitQueuesFun, Servers).
 
 stop(_State) ->
     ok.
@@ -63,17 +76,17 @@ wait_for_jobs(Pool) ->
             wait_for_jobs(Pool)
     end.
 
-wait_for_consumers(Pool, ConsumersPool) ->
+wait_for_consumers(ConsumersPool) ->
     Pids = revolver:map(ConsumersPool, fun(Pid) -> Pid end),
 
     case Pids of
         [] ->
-            ?INFO_MSG(<<"All consumers processes were stopped for pool: ~p">>, [Pool]),
+            ?INFO_MSG(<<"All consumers processes were stopped for: ~p">>, [ConsumersPool]),
             ok;
         List ->
-            ?INFO_MSG(<<"Still waiting for ~p consumers to stop in pool ~p">>, [length(List), Pool]),
+            ?INFO_MSG(<<"Still waiting for ~p consumers to stop in ~p">>, [length(List), ConsumersPool]),
             timer:sleep(1000),
-            wait_for_consumers(Pool, ConsumersPool)
+            wait_for_consumers(ConsumersPool)
     end.
 
 wait_for_queue(Pool, Pid) ->
