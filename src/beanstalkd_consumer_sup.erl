@@ -25,7 +25,7 @@ init([]) ->
         ConsumersList = bk_utils:lookup(consumers, Params),
 
         QueuesSpecs = create_queues(BinServerName, ConnectionInfo, NumberOfQueues),
-        ConsumersSpecs = lists:foldl(fun({ConsumerName, Params}, ConsumersAcc) -> create_consumers(BinServerName, ConsumerName, ConnectionInfo, Params) ++ ConsumersAcc end, [], ConsumersList),
+        ConsumersSpecs = lists:foldl(fun({ConsumerName, ConsumerParams}, ConsumersAcc) -> create_consumers(BinServerName, ConsumerName, ConnectionInfo, ConsumerParams) ++ ConsumersAcc end, [], ConsumersList),
 
         QueuesSpecs ++ ConsumersSpecs ++ Acc
     end,
