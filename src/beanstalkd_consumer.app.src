@@ -1,5 +1,5 @@
 {application, beanstalkd_consumer, [
-    {description, ""},
+    {description, "Erlang onsumer framework for Beanstalkd work queue"},
     {vsn, "1.0"},
     {registered, []},
     {applications, [kernel, stdlib, beanstalk]},
