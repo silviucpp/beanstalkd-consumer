@@ -8,10 +8,6 @@
 -export([start/2, stop/1, prep_stop/1]).
 
 start(_StartType, _StartArgs) ->
-    load_code(deps),
-    lager:start(),
-    application:start(poolboy),
-    application:start(jobs),
     beanstalkd_consumer_sup:start_link().
 
 prep_stop(_State) ->
@@ -100,17 +96,3 @@ wait_for_queue(Pool, Pid) ->
             wait_for_queue(Pool, Pid)
     end.
 
-load_code(Arg) ->
-    case init:get_argument(Arg) of
-        {ok,[[Dir]]} ->
-            case file:list_dir(Dir) of
-                {ok, L} ->
-                    io:format(<<"Load deps code from ~p ~n">>,[Dir]),
-                    lists:foreach(fun(I) -> Path = Dir ++ "/" ++ I ++ "/ebin", code:add_path(Path) end, L),
-                    ok;
-                _ ->
-                    throw(badarg)
-            end;
-        _ ->
-            ok
-    end.

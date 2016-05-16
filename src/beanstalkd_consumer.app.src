@@ -1,12 +1,8 @@
-{application, beanstalkd_consumer,
- [
-  {description, ""},
-  {vsn, "1"},
-  {registered, []},
-  {applications, [
-                  kernel,
-                  stdlib
-                 ]},
-  {mod, { beanstalkd_consumer_app, []}},
-  {env, []}
- ]}.
+{application, beanstalkd_consumer, [
+    {description, ""},
+    {vsn, "1.0"},
+    {registered, []},
+    {applications, [kernel, stdlib, beanstalk]},
+    {mod, { beanstalkd_consumer_app, []}},
+    {env, []}
+]}.
