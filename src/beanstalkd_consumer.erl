@@ -143,7 +143,7 @@ process_job(State, JobId, JobPayload) ->
                         ?ERROR_MSG(<<"delete malformated job payload id: ~p reason: ~p payload: ~p">>, [JobId, Reason, JobPayload]),
                         ok = beanstalkd_queue_pool:delete(State#state.queue_pool_name, JobId);
                     _: Response ->
-                        ?ERROR_MSG(<<"Job will stay in buried state id: ~p payload: ~p response: ~p">>, [JobId, JobPayload, Response])
+                        ?ERROR_MSG(<<"Job will stay in buried state id: ~p payload: ~p response: ~p stacktrace: ~p">>, [JobId, JobPayload, Response, erlang:get_stacktrace()])
                 after
                     ok = ratx:done(State#state.pool_name)
                 end
