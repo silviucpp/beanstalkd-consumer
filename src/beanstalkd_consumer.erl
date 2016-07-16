@@ -51,14 +51,14 @@ init(Args) ->
     end.
 
 handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+    {reply, ok, State, get_timeout(State)}.
 
 handle_cast(stop, State) ->
     ?INFO_MSG(<<"Consumer for ~p will go in stop state">>, [State#state.pool_name]),
     {stop, normal, State};
 
 handle_cast(_Request, State) ->
-    {noreply, State}.
+    {noreply, State, get_timeout(State)}.
 
 handle_info(timeout, State) ->
     case State#state.connection_state of
@@ -90,11 +90,11 @@ handle_info({connection_status, {down, _Pid}}, State) ->
 
 handle_info({'EXIT', _FromPid, Reason} , State) ->
     ?ERROR_MSG(<<"beanstalk connection died: ~p">>,[Reason]),
-    {stop, {error, Reason},State};
+    {stop, {error, Reason}, State};
 
 handle_info(Info, State) ->
     ?WARNING_MSG(<<"received unexpected message: ~p">>,[Info]),
-    {noreply, State}.
+    {noreply, State, get_timeout(State)}.
 
 terminate(_Reason, State) ->
     case State#state.connection of
@@ -106,7 +106,7 @@ terminate(_Reason, State) ->
     end.
 
 code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+    {ok, State, get_timeout(State)}.
 
 get_job(Connection) ->
     case beanstalk:reserve(Connection, 1) of
@@ -150,4 +150,12 @@ process_job(State, JobId, JobPayload) ->
             end,
             spawn(JobFun),
             sent
+    end.
+
+get_timeout(State) ->
+    case State#state.connection_state of
+        up ->
+            0;
+        _ ->
+            infinity
     end.

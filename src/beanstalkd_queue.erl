@@ -38,13 +38,13 @@ handle_call({push_job, Job}, _From, State) ->
     {reply, ok, NewState, Timeout};
 
 handle_call(queue_size, _From, State) ->
-    {reply, {ok, State#state.queue_size}, State};
+    {reply, {ok, State#state.queue_size}, State, get_timeout(State)};
 
 handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+    {reply, ok, State, get_timeout(State)}.
 
 handle_cast(_Request, State) ->
-    {noreply, State}.
+    {noreply, State, get_timeout(State)}.
 
 handle_info(timeout, State) ->
     consume_job_queue(State);
@@ -60,11 +60,11 @@ handle_info({connection_status, {down, _Pid}}, State) ->
 
 handle_info({'EXIT', _FromPid, Reason} , State) ->
     ?ERROR_MSG(<<"beanstalk connection died: ~p">>,[Reason]),
-    {stop, {error, Reason},State};
+    {stop, {error, Reason}, State};
 
 handle_info(Info, State) ->
     ?ERROR_MSG(<<"received unexpected message: ~p">>, [Info]),
-    {noreply, State}.
+    {noreply, State, get_timeout(State)}.
 
 terminate(_Reason, State) ->
     case State#state.connection of
@@ -76,7 +76,7 @@ terminate(_Reason, State) ->
     end.
 
 code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+    {ok, State, get_timeout(State)}.
 
 consume_job_queue(State) ->
     case State#state.connection_state of
