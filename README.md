@@ -70,6 +70,10 @@ For each consumer:
 - `callbacks` - `{Module, InitFun/1, ProcessFun/3}`. the module followed by init function and the function that will handle the jobs.
 - `concurrent_jobs` - how many concurrent jobs can run in parallel.
 
+Also you can use `app_init` to specify a module, function that will be called once `beanstalkd_consumer` application is started before creating the 
+consumers: ex: `{app_init, {my_module, function}}`. You can use this to do any stuffs that's required in order to have your consumers working properly (usefull when you have `beanstalkd_consumer` as a dependecy for you app)
+
+
 ```erlang
 application:start(beanstalkd_consumer).
 ```

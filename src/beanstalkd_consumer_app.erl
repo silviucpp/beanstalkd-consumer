@@ -8,6 +8,14 @@
 -export([start/2, stop/1, prep_stop/1]).
 
 start(_StartType, _StartArgs) ->
+
+    case bk_utils:get_env(app_init) of
+        undefined ->
+            ok;
+        {Module, Function} ->
+            Module:Function()
+    end,
+
     beanstalkd_consumer_sup:start_link().
 
 prep_stop(_State) ->
