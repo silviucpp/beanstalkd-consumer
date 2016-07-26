@@ -1,7 +1,13 @@
 -module(bk_utils).
 -author("silviu.caragea").
 
--export([lookup/2, lookup/3, get_env/1, get_tube/2]).
+-export([
+    lookup/2,
+    lookup/3,
+    replace/3,
+    get_env/1,
+    get_tube/2
+]).
 
 lookup(Key, List) ->
     lookup(Key, List, undefined).
@@ -13,6 +19,9 @@ lookup(Key, List, Default) ->
         false ->
             Default
     end.
+
+replace(Key, NewValue, List) ->
+    lists:keyreplace(Key, 1, List, {Key, NewValue}).
 
 get_tube(_, undefined) ->
     undefined;
