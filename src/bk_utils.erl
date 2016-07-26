@@ -22,5 +22,9 @@ get_tube(client, Tube) ->
     {use, Tube}.
 
 get_env(Key) ->
-    {ok, Value} = application:get_env(beanstalkd_consumer, Key),
-    Value.
+    case application:get_env(beanstalkd_consumer, Key) of
+        {ok, Value} ->
+            Value;
+        undefined ->
+            undefined
+    end.
