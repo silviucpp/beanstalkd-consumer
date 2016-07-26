@@ -15,9 +15,9 @@
     conn_state,
     consumer_pool,
     queue_pool,
-    user_state,
-    job_module,
-    job_fun}).
+    multi_tubes,
+    job_callback
+}).
 
 stop(Pid) ->
     gen_server:cast(Pid, stop).
@@ -28,31 +28,37 @@ start_link(Args) ->
 init(Args) ->
     process_flag(trap_exit, true),
 
-    QueuePoolName = bk_utils:lookup(queue_pool_name, Args),
-    PoolName = bk_utils:lookup(pool_name, Args),
+    QPName = bk_utils:lookup(queue_pool_name, Args),
+    CPName = bk_utils:lookup(pool_name, Args),
 
-    case bk_utils:lookup(callbacks, Args) of
-        {Module, InitFun, JobFun} ->
-            UserState = Module:InitFun(self()),
-            Tube = bk_utils:get_tube(consumer, bk_utils:lookup(tube, Args)),
-            ArgsNew = bk_utils:replace(tube, Tube, Args),
+    CallbacksList = bk_utils:lookup(callbacks, Args),
 
-            {ok, Q} = beanstalk:connect([{monitor, self()} | ArgsNew]),
+    FunCallbacks = fun(X, Acc) ->
+        case X of
+            {Tube, Module, InitFun, JobFun} ->
+                UserState = Module:InitFun(self()),
+                [{Tube, {Module, JobFun, UserState}} | Acc]
+        end
+    end,
 
-            State = #state{
-                conn = Q,
-                conn_state = down,
-                queue_pool = QueuePoolName,
-                consumer_pool = PoolName,
-                user_state = UserState,
-                job_module = Module,
-                job_fun = JobFun
-            },
+    CallbacksMapped = lists:foldl(FunCallbacks, [], CallbacksList),
 
-            {ok, State};
+    TubeList = bk_utils:get_tube(consumer, lists:map(fun({Tube, _}) -> Tube end, CallbacksMapped)),
+
+    ArgsNew = bk_utils:replace(tube, TubeList, Args),
+    {ok, Q} = beanstalk:connect([{monitor, self()} | ArgsNew]),
+
+    %in case it's watching only one tube extract if from list
+    JobCallback = case CallbacksMapped of
+        [{_TubeName, TubePayload}] ->
+            TubePayload;
         _ ->
-            throw({error, fun_process_bad_argument})
-    end.
+            CallbacksMapped
+    end,
+
+    MultiTubes = is_list(JobCallback),
+
+    {ok, #state{conn = Q, conn_state = down, queue_pool = QPName, consumer_pool = CPName, job_callback = JobCallback, multi_tubes = MultiTubes}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State, get_timeout(State)}.
@@ -67,11 +73,11 @@ handle_cast(_Request, State) ->
 handle_info(timeout, State) ->
     case State#state.conn_state of
         up ->
-            case get_job(State#state.conn) of
+            case get_job(State#state.conn, State#state.multi_tubes) of
                 timed_out ->
                     {noreply, State, 0};
-                {ok, JobId, JobPayload} ->
-                    case process_job(State, JobId, JobPayload) of
+                {ok, JobId, JobPayload, TubeName} ->
+                    case process_job(State, JobId, JobPayload, TubeName) of
                         sent ->
                             {noreply, State, 0};
                         dropped ->
@@ -112,16 +118,22 @@ terminate(_Reason, State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State, get_timeout(State)}.
 
-get_job(Connection) ->
+get_job(Connection, ExtractTubeName) ->
     case beanstalk:reserve(Connection, 1) of
         {timed_out} ->
             timed_out;
         {reserved, JobId, JobPayload} ->
-            case beanstalk:bury(Connection, JobId) of
-                {buried} ->
-                    {ok, JobId, JobPayload};
+            case get_tube_name(ExtractTubeName, Connection, JobId) of
+                {ok, TubeName} ->
+                    case beanstalk:bury(Connection, JobId) of
+                        {buried} ->
+                            {ok, JobId, JobPayload, TubeName};
+                        UnexpectedResult ->
+                            ?ERROR_MSG(<<"received unexpected bury result job: ~p error: ~p">>,[JobId, UnexpectedResult]),
+                            {error, UnexpectedResult}
+                    end;
                 UnexpectedResult ->
-                    ?ERROR_MSG(<<"received unexpected bury result job: ~p error: ~p">>,[JobId, UnexpectedResult]),
+                    ?ERROR_MSG(<<"received unexpected result for getting tube name: ~p error: ~p">>,[JobId, UnexpectedResult]),
                     {error, UnexpectedResult}
             end;
         UnexpectedResult ->
@@ -129,18 +141,34 @@ get_job(Connection) ->
             {error, UnexpectedResult}
     end.
 
-process_job(State, JobId, JobPayload) ->
+get_tube_name(true, Connection, JobId) ->
+    case beanstalk:stats_job(Connection, JobId) of
+        {ok, Stats} ->
+            {ok, bk_utils:lookup(<<"tube">>, Stats)};
+        UnexpectedError ->
+            UnexpectedError
+    end;
+get_tube_name(_ , _Connection, _JobId) ->
+    {ok, undefined}.
+
+process_job(State, JobId, JobPayload, TubeName) ->
     case ratx:ask(State#state.consumer_pool) of
         drop ->
-            ?WARNING_MSG(<<"drop message: ~p ~p">>,[JobId, JobPayload]),
+            ?WARNING_MSG(<<"drop message id: ~p payload: ~p tube:~p">>,[JobId, JobPayload, TubeName]),
             ok = beanstalkd_queue_pool:kick_job(State#state.queue_pool, JobId),
             dropped;
         Ref when is_reference(Ref) ->
             JobFun = fun() ->
                 try
-                    Module = State#state.job_module,
-                    Fun = State#state.job_fun,
-                    Module:Fun(JobId, JobPayload, State#state.user_state),
+                    case State#state.multi_tubes of
+                        true ->
+                            {Module, Fun, UserState} = bk_utils:lookup(TubeName, State#state.job_callback),
+                            Module:Fun(JobId, JobPayload, UserState);
+                        _ ->
+                            {Module, Fun, UserState} = State#state.job_callback,
+                            Module:Fun(JobId, JobPayload, UserState)
+                    end,
+
                     ok = beanstalkd_queue_pool:delete(State#state.queue_pool, JobId)
                 catch
                     _: {bad_argument, Reason} ->

@@ -45,9 +45,10 @@ Use a config similar with:
                 {queues_number, 1},
                 {consumers, [
                     {consumer_silviu, [
-                        {tubes, <<"silviu">>},
                         {instances, 1},
-                        {callbacks,  {test, init, process}},
+                        {callbacks, [
+                            {<<"tube_name">>, test, init, process}
+                        ]},
                         {concurrent_jobs, 100000}
                     ]}
                 ]}
@@ -65,9 +66,8 @@ connection to the server is not up and are sent again once connection is establi
 
 For each consumer:
 
-- `tubes` - The tube/list of tubes that will watch
 - `instances` - number of consumers
-- `callbacks` - `{Module, InitFun/1, ProcessFun/3}`. the module followed by init function and the function that will handle the jobs.
+- `callbacks` - `[{Tube, Module, InitFun/1, ProcessFun/3}]`. Each item in list is formed from the tube, module, init function, the function that will handle the jobs for that tube.
 - `concurrent_jobs` - how many concurrent jobs can run in parallel.
 
 Also you can use `app_init` to specify a module, function that will be called once `beanstalkd_consumer` application is started before creating the 
