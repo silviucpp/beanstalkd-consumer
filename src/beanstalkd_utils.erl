@@ -1,4 +1,4 @@
--module(bk_utils).
+-module(beanstalkd_utils).
 -author("silviu.caragea").
 
 -export([
