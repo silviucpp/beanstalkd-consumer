@@ -9,7 +9,7 @@
 
 start(_StartType, _StartArgs) ->
 
-    case bk_utils:get_env(app_init) of
+    case beanstalkd_utils:get_env(app_init) of
         undefined ->
             ok;
         {Module, Function} ->
@@ -20,11 +20,11 @@ start(_StartType, _StartArgs) ->
 
 prep_stop(_State) ->
 
-    Servers = bk_utils:get_env(servers),
+    Servers = beanstalkd_utils:get_env(servers),
 
     ExtractIdentifiersFun = fun({ServerName, Params}, AccFinal) ->
         ServerNameBin = atom_to_binary(ServerName, utf8),
-        ConsumersList = bk_utils:lookup(consumers, Params),
+        ConsumersList = beanstalkd_utils:lookup(consumers, Params),
 
         Fun = fun({ConsumerName, _}, Acc) ->
             ConsumerNameBin = atom_to_binary(ConsumerName, utf8),

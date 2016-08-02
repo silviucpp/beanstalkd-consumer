@@ -20,9 +20,9 @@ start_link() ->
 init([]) ->
     ServersFun = fun({ServerName, Params}, Acc) ->
         BinServerName = atom_to_binary(ServerName, utf8),
-        ConnectionInfo = bk_utils:lookup(connection_info, Params, []),
-        NumberOfQueues = bk_utils:lookup(queues_number, Params, ?DEFAULT_QUEUES_PER_POOL),
-        ConsumersList = bk_utils:lookup(consumers, Params),
+        ConnectionInfo = beanstalkd_utils:lookup(connection_info, Params, []),
+        NumberOfQueues = beanstalkd_utils:lookup(queues_number, Params, ?DEFAULT_QUEUES_PER_POOL),
+        ConsumersList = beanstalkd_utils:lookup(consumers, Params),
 
         QueuesSpecs = create_queues(BinServerName, ConnectionInfo, NumberOfQueues),
         ConsumersSpecs = lists:foldl(fun({ConsumerName, ConsumerParams}, ConsumersAcc) -> create_consumers(BinServerName, ConsumerName, ConnectionInfo, ConsumerParams) ++ ConsumersAcc end, [], ConsumersList),
@@ -30,7 +30,7 @@ init([]) ->
         QueuesSpecs ++ ConsumersSpecs ++ Acc
     end,
 
-    Servers = bk_utils:get_env(servers),
+    Servers = beanstalkd_utils:get_env(servers),
 
     {ok, {{one_for_one, 1000, 1}, lists:foldl(ServersFun, [], Servers)}}.
 
@@ -57,10 +57,10 @@ create_consumers(ServerName, ConsumerName, ConnectionInfo, Params) ->
 
     ConsumerSupervisorName = ?BK_SUPERVISOR_CONSUMER(Identifier),
 
-    Instances = bk_utils:lookup(instances, Params, ?DEFAULT_CONSUMERS_PER_POOL),
-    ConcurrentJobs = bk_utils:lookup(concurrent_jobs, Params, ?DEFAULT_CONCURRENCY),
-    Callbacks = bk_utils:lookup(callbacks, Params),
-    Tubes = bk_utils:lookup(tubes, Params),
+    Instances = beanstalkd_utils:lookup(instances, Params, ?DEFAULT_CONSUMERS_PER_POOL),
+    ConcurrentJobs = beanstalkd_utils:lookup(concurrent_jobs, Params, ?DEFAULT_CONCURRENCY),
+    Callbacks = beanstalkd_utils:lookup(callbacks, Params),
+    Tubes = beanstalkd_utils:lookup(tubes, Params),
 
     ConsumerArgs = [{callbacks, Callbacks}, {queue_pool_name, ?BK_POOL_QUEUE(ServerName)}, {pool_name, IdentifierAtom}] ++ [{tube, Tubes}|ConnectionInfo],
     RatxArgs = [IdentifierAtom, [{limit, ConcurrentJobs}, {queue, 0}]],

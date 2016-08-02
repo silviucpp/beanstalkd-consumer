@@ -26,7 +26,7 @@ kick_job(Pid, JobId)->
     gen_server:call(Pid, ?PUSH_JOB({kick_job, JobId})).
 
 init(Args) ->
-    Tube = bk_utils:get_tube(client, bk_utils:lookup(tube, Args)),
+    Tube = beanstalkd_utils:get_tube(client, beanstalkd_utils:lookup(tube, Args)),
     ArgsNew = lists:keyreplace(tube, 1, Args, {tube, Tube}),
 
     {ok, Connection} = ebeanstalkd:connect([{monitor, self()} | ArgsNew]),

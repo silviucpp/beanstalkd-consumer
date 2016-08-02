@@ -28,10 +28,10 @@ start_link(Args) ->
 init(Args) ->
     process_flag(trap_exit, true),
 
-    QPName = bk_utils:lookup(queue_pool_name, Args),
-    CPName = bk_utils:lookup(pool_name, Args),
+    QPName = beanstalkd_utils:lookup(queue_pool_name, Args),
+    CPName = beanstalkd_utils:lookup(pool_name, Args),
 
-    CallbacksList = bk_utils:lookup(callbacks, Args),
+    CallbacksList = beanstalkd_utils:lookup(callbacks, Args),
 
     FunCallbacks = fun(X, Acc) ->
         case X of
@@ -43,9 +43,9 @@ init(Args) ->
 
     CallbacksMapped = lists:foldl(FunCallbacks, [], CallbacksList),
 
-    TubeList = bk_utils:get_tube(consumer, lists:map(fun({Tube, _}) -> Tube end, CallbacksMapped)),
+    TubeList = beanstalkd_utils:get_tube(consumer, lists:map(fun({Tube, _}) -> Tube end, CallbacksMapped)),
 
-    ArgsNew = bk_utils:replace(tube, TubeList, Args),
+    ArgsNew = beanstalkd_utils:replace(tube, TubeList, Args),
     {ok, Q} = ebeanstalkd:connect([{monitor, self()} | ArgsNew]),
 
     %in case it's watching only one tube extract if from list
@@ -144,7 +144,7 @@ get_job(Connection, ExtractTubeName) ->
 get_tube_name(true, Connection, JobId) ->
     case ebeanstalkd:stats_job(Connection, JobId) of
         {ok, Stats} ->
-            {ok, bk_utils:lookup(<<"tube">>, Stats)};
+            {ok, beanstalkd_utils:lookup(<<"tube">>, Stats)};
         UnexpectedError ->
             UnexpectedError
     end;
@@ -162,7 +162,7 @@ process_job(State, JobId, JobPayload, TubeName) ->
                 try
                     case State#state.multi_tubes of
                         true ->
-                            {Module, Fun, UserState} = bk_utils:lookup(TubeName, State#state.job_callback),
+                            {Module, Fun, UserState} = beanstalkd_utils:lookup(TubeName, State#state.job_callback),
                             Module:Fun(JobId, JobPayload, UserState);
                         _ ->
                             {Module, Fun, UserState} = State#state.job_callback,
