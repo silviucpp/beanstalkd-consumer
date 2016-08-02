@@ -1,8 +1,8 @@
 {application, beanstalkd_consumer, [
-    {description, "Erlang onsumer framework for Beanstalkd work queue"},
-    {vsn, "1.0"},
+    {description, "Erlang consumer framework for Beanstalkd work queue"},
+    {vsn, "1.4"},
     {registered, []},
-    {applications, [kernel, stdlib, beanstalk]},
+    {applications, [kernel, stdlib, ebeanstalkd]},
     {mod, { beanstalkd_consumer_app, []}},
     {env, []}
 ]}.

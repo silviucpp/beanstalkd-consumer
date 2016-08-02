@@ -1,7 +1,7 @@
 -module(beanstalkd_consumer).
 -author("silviu").
 
--include_lib("beanstalk/include/beanstalk.hrl").
+-include_lib("ebeanstalkd/include/ebeanstalkd.hrl").
 -include("beanstalkd_consumer.hrl").
 
 -behaviour(gen_server).
@@ -46,7 +46,7 @@ init(Args) ->
     TubeList = bk_utils:get_tube(consumer, lists:map(fun({Tube, _}) -> Tube end, CallbacksMapped)),
 
     ArgsNew = bk_utils:replace(tube, TubeList, Args),
-    {ok, Q} = beanstalk:connect([{monitor, self()} | ArgsNew]),
+    {ok, Q} = ebeanstalkd:connect([{monitor, self()} | ArgsNew]),
 
     %in case it's watching only one tube extract if from list
     JobCallback = case CallbacksMapped of
@@ -111,7 +111,7 @@ terminate(_Reason, State) ->
         undefined ->
             ok;
         _ ->
-            catch beanstalk:close(State#state.conn),
+            catch ebeanstalkd:close(State#state.conn),
             ok
     end.
 
@@ -119,13 +119,13 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State, get_timeout(State)}.
 
 get_job(Connection, ExtractTubeName) ->
-    case beanstalk:reserve(Connection, 1) of
+    case ebeanstalkd:reserve(Connection, 1) of
         {timed_out} ->
             timed_out;
         {reserved, JobId, JobPayload} ->
             case get_tube_name(ExtractTubeName, Connection, JobId) of
                 {ok, TubeName} ->
-                    case beanstalk:bury(Connection, JobId) of
+                    case ebeanstalkd:bury(Connection, JobId) of
                         {buried} ->
                             {ok, JobId, JobPayload, TubeName};
                         UnexpectedResult ->
@@ -142,7 +142,7 @@ get_job(Connection, ExtractTubeName) ->
     end.
 
 get_tube_name(true, Connection, JobId) ->
-    case beanstalk:stats_job(Connection, JobId) of
+    case ebeanstalkd:stats_job(Connection, JobId) of
         {ok, Stats} ->
             {ok, bk_utils:lookup(<<"tube">>, Stats)};
         UnexpectedError ->

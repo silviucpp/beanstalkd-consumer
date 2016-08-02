@@ -1,7 +1,7 @@
 -module(beanstalkd_queue).
 -author("silviu.caragea").
 
--include_lib("beanstalk/include/beanstalk.hrl").
+-include_lib("ebeanstalkd/include/ebeanstalkd.hrl").
 
 -behaviour(gen_server).
 
@@ -29,7 +29,7 @@ init(Args) ->
     Tube = bk_utils:get_tube(client, bk_utils:lookup(tube, Args)),
     ArgsNew = lists:keyreplace(tube, 1, Args, {tube, Tube}),
 
-    {ok, Connection} = beanstalk:connect([{monitor, self()} | ArgsNew]),
+    {ok, Connection} = ebeanstalkd:connect([{monitor, self()} | ArgsNew]),
     {ok, #state{connection_state = down, connection = Connection, queue = [], queue_size = 0}}.
 
 handle_call({push_job, Job}, _From, State) ->
@@ -71,7 +71,7 @@ terminate(_Reason, State) ->
         undefined ->
             ok;
         _ ->
-                catch beanstalk:close(State#state.connection),
+                catch ebeanstalkd:close(State#state.connection),
             ok
     end.
 
@@ -110,7 +110,7 @@ run_job(Connection, {JobType, JobId} = Job) ->
     end.
 
 run_job(delete, Connection, JobId) ->
-    case beanstalk:delete(Connection, JobId) of
+    case ebeanstalkd:delete(Connection, JobId) of
         {deleted} ->
             true;
         Result ->
@@ -118,7 +118,7 @@ run_job(delete, Connection, JobId) ->
     end;
 
 run_job(kick_job, Connection, JobId) ->
-    case beanstalk:kick_job(Connection, JobId) of
+    case ebeanstalkd:kick_job(Connection, JobId) of
         {kicked} ->
             true;
         Result ->

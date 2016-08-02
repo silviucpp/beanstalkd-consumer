@@ -1,7 +1,7 @@
 -module(beanstalkd_queue_pool).
 -author("silviu.caragea").
 
--include_lib("beanstalk/include/beanstalk.hrl").
+-include_lib("ebeanstalkd/include/ebeanstalkd.hrl").
 -include("beanstalkd_consumer.hrl").
 
 -export([delete/2, kick_job/2, pool_size/1]).

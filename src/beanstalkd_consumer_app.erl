@@ -1,6 +1,6 @@
 -module(beanstalkd_consumer_app).
 
--include_lib("beanstalk/include/beanstalk.hrl").
+-include_lib("ebeanstalkd/include/ebeanstalkd.hrl").
 -include("beanstalkd_consumer.hrl").
 
 -behaviour(application).
