@@ -19,13 +19,13 @@
 ]).
 
 init(Pid) ->
-    io:format(<<"init: ~p ~n">>, [Pid]),
+    io:format(<<"~p:init: ~p ~n">>, [?MODULE, Pid]),
     ok.
 
 process(Id, _Payload, State) ->
     case Id rem 1000 =:=0 of
         true ->
-            io:format(<<"processed: ~p ~n">>, [{Id, State}]);
+            io:format(<<"~p:processed: ~p ~n">>, [?MODULE, {Id, State}]);
         _ ->
             ok
     end.
