@@ -72,10 +72,10 @@ wait_for_jobs(Pool) ->
 
     case InProgressJobs of
         0 ->
-            ?INFO_MSG(<<"All jobs for pool ~p completed">>, [Pool]),
+            ?INFO_MSG("All jobs for pool ~p completed", [Pool]),
             ok;
         _ ->
-            ?INFO_MSG(<<"Still waiting for ~p jobs in pool ~p">>, [InProgressJobs, Pool]),
+            ?INFO_MSG("Still waiting for ~p jobs in pool ~p", [InProgressJobs, Pool]),
             timer:sleep(1000),
             wait_for_jobs(Pool)
     end.
@@ -85,10 +85,10 @@ wait_for_consumers(ConsumersPool) ->
 
     case Pids of
         [] ->
-            ?INFO_MSG(<<"All consumers processes were stopped for: ~p">>, [ConsumersPool]),
+            ?INFO_MSG("all consumers processes were stopped for: ~p", [ConsumersPool]),
             ok;
         List ->
-            ?INFO_MSG(<<"Still waiting for ~p consumers to stop in ~p">>, [length(List), ConsumersPool]),
+            ?INFO_MSG("still waiting for ~p consumers to stop in ~p", [length(List), ConsumersPool]),
             timer:sleep(1000),
             wait_for_consumers(ConsumersPool)
     end.
@@ -96,11 +96,10 @@ wait_for_consumers(ConsumersPool) ->
 wait_for_queue(Pool, Pid) ->
     case beanstalkd_queue:jobs_queued(Pid) of
         {ok, 0} ->
-            ?INFO_MSG(<<"All queued jobs for pool ~p completed">>, [Pool]),
+            ?INFO_MSG("all queued jobs for pool ~p completed", [Pool]),
             ok;
         {ok, JobsQueued} ->
-            ?INFO_MSG(<<"Still waiting for ~p jobs in queue for pool ~p">>, [JobsQueued, Pool]),
+            ?INFO_MSG("still waiting for ~p jobs in queue for pool ~p", [JobsQueued, Pool]),
             timer:sleep(1000),
             wait_for_queue(Pool, Pid)
     end.
-

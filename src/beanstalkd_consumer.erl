@@ -64,7 +64,7 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State, get_timeout(State)}.
 
 handle_cast(stop, State) ->
-    ?INFO_MSG(<<"Consumer for ~p will go in stop state">>, [State#state.consumer_pool]),
+    ?INFO_MSG("consumer for ~p will go in stop state", [State#state.consumer_pool]),
     {stop, normal, State};
 
 handle_cast(_Request, State) ->
@@ -91,19 +91,19 @@ handle_info(timeout, State) ->
     end;
 
 handle_info({connection_status, {up, _Pid}}, State) ->
-    ?INFO_MSG(<<"received connection up">>,[]),
+    ?INFO_MSG("received connection up", []),
     {noreply, State#state{conn_state = up}, 0};
 
 handle_info({connection_status, {down, _Pid}}, State) ->
-    ?INFO_MSG(<<"received connection down">>,[]),
+    ?INFO_MSG("received connection down", []),
     {noreply, State#state{conn_state = down}};
 
 handle_info({'EXIT', _FromPid, Reason} , State) ->
-    ?ERROR_MSG(<<"beanstalk connection died: ~p">>,[Reason]),
+    ?ERROR_MSG("beanstalk connection died: ~p", [Reason]),
     {stop, {error, Reason}, State};
 
 handle_info(Info, State) ->
-    ?WARNING_MSG(<<"received unexpected message: ~p">>,[Info]),
+    ?WARNING_MSG("received unexpected message: ~p", [Info]),
     {noreply, State, get_timeout(State)}.
 
 terminate(_Reason, State) ->
@@ -129,15 +129,15 @@ get_job(Connection, ExtractTubeName) ->
                         {buried} ->
                             {ok, JobId, JobPayload, TubeName};
                         UnexpectedResult ->
-                            ?ERROR_MSG(<<"received unexpected bury result job: ~p error: ~p">>,[JobId, UnexpectedResult]),
+                            ?ERROR_MSG("received unexpected bury result job: ~p error: ~p", [JobId, UnexpectedResult]),
                             {error, UnexpectedResult}
                     end;
                 UnexpectedResult ->
-                    ?ERROR_MSG(<<"received unexpected result for getting tube name: ~p error: ~p">>,[JobId, UnexpectedResult]),
+                    ?ERROR_MSG("received unexpected result for getting tube name: ~p error: ~p", [JobId, UnexpectedResult]),
                     {error, UnexpectedResult}
             end;
         UnexpectedResult ->
-            ?ERROR_MSG(<<"received unexpected reserve result: ~p">>,[UnexpectedResult]),
+            ?ERROR_MSG("received unexpected reserve result: ~p",[UnexpectedResult]),
             {error, UnexpectedResult}
     end.
 
@@ -154,7 +154,7 @@ get_tube_name(_ , _Connection, _JobId) ->
 process_job(State, JobId, JobPayload, TubeName) ->
     case ratx:ask(State#state.consumer_pool) of
         drop ->
-            ?WARNING_MSG(<<"drop message id: ~p payload: ~p tube:~p">>,[JobId, JobPayload, TubeName]),
+            ?WARNING_MSG("drop message id: ~p payload: ~p tube:~p",[JobId, JobPayload, TubeName]),
             ok = beanstalkd_queue_pool:kick_job(State#state.queue_pool, JobId),
             dropped;
         Ref when is_reference(Ref) ->
@@ -172,10 +172,10 @@ process_job(State, JobId, JobPayload, TubeName) ->
                     ok = beanstalkd_queue_pool:delete(State#state.queue_pool, JobId)
                 catch
                     _: {bad_argument, Reason} ->
-                        ?ERROR_MSG(<<"delete malformated job payload id: ~p reason: ~p payload: ~p">>, [JobId, Reason, JobPayload]),
+                        ?ERROR_MSG("delete malformated job payload id: ~p reason: ~p payload: ~p", [JobId, Reason, JobPayload]),
                         ok = beanstalkd_queue_pool:delete(State#state.queue_pool, JobId);
                     _: Response ->
-                        ?ERROR_MSG(<<"Job will stay in buried state id: ~p payload: ~p response: ~p stacktrace: ~p">>, [JobId, JobPayload, Response, erlang:get_stacktrace()])
+                        ?ERROR_MSG("Job will stay in buried state id: ~p payload: ~p response: ~p stacktrace: ~p", [JobId, JobPayload, Response, erlang:get_stacktrace()])
                 after
                     ok = ratx:done(State#state.consumer_pool)
                 end

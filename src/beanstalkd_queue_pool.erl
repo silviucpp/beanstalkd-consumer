@@ -27,6 +27,6 @@ pool_size(QueueName) ->
         length(revolver_utils:child_pids(QueueName))
     catch
         _:Err ->
-            ?ERROR_MSG(<<"failed to get the supervisor childrens: ~p">>, [Err]),
+            ?ERROR_MSG("failed to get the supervisor childrens: ~p", [Err]),
             0
     end.

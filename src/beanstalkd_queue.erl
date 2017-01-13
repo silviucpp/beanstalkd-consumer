@@ -50,20 +50,20 @@ handle_info(timeout, State) ->
     consume_job_queue(State);
 
 handle_info({connection_status, {up, _Pid}}, State) ->
-    ?INFO_MSG(<<"received connection up">>,[]),
+    ?INFO_MSG("received connection up",[]),
     NewState = State#state{connection_state = up},
     {noreply, NewState, get_timeout(NewState)};
 
 handle_info({connection_status, {down, _Pid}}, State) ->
-    ?INFO_MSG(<<"received connection down">>,[]),
+    ?INFO_MSG("received connection down", []),
     {noreply, State#state{connection_state = down}};
 
 handle_info({'EXIT', _FromPid, Reason} , State) ->
-    ?ERROR_MSG(<<"beanstalk connection died: ~p">>,[Reason]),
+    ?ERROR_MSG("beanstalk connection died: ~p", [Reason]),
     {stop, {error, Reason}, State};
 
 handle_info(Info, State) ->
-    ?ERROR_MSG(<<"received unexpected message: ~p">>, [Info]),
+    ?ERROR_MSG("received unexpected message: ~p", [Info]),
     {noreply, State, get_timeout(State)}.
 
 terminate(_Reason, State) ->
@@ -71,7 +71,7 @@ terminate(_Reason, State) ->
         undefined ->
             ok;
         _ ->
-                catch ebeanstalkd:close(State#state.connection),
+            catch ebeanstalkd:close(State#state.connection),
             ok
     end.
 
@@ -99,13 +99,13 @@ consume_job_queue(State) ->
 run_job(Connection, {JobType, JobId} = Job) ->
     case run_job(JobType, Connection, JobId) of
         true ->
-            ?DEBUG_MSG(<<"job completed : ~p">>,[Job]),
+            ?DEBUG_MSG("job completed : ~p",[Job]),
             true;
         {not_found} ->
-            ?WARNING_MSG(<<"job not found: ~p">>,[Job]),
+            ?WARNING_MSG("job not found: ~p",[Job]),
             true;
         UnexpectedResult ->
-            ?ERROR_MSG(<<"job failed (send back to queue): ~p error: ~p">>,[Job, UnexpectedResult]),
+            ?ERROR_MSG("job failed (send back to queue): ~p error: ~p",[Job, UnexpectedResult]),
             false
     end.
 
