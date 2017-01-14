@@ -8,14 +8,6 @@
 -export([start/2, stop/1, prep_stop/1]).
 
 start(_StartType, _StartArgs) ->
-
-    case beanstalkd_utils:get_env(app_init) of
-        undefined ->
-            ok;
-        {Module, Function} ->
-            Module:Function()
-    end,
-
     beanstalkd_consumer_sup:start_link().
 
 prep_stop(_State) ->
@@ -40,8 +32,12 @@ prep_stop(_State) ->
     %send the stop message to avoid reserving new jobs
 
     StopFun = fun(ConsumerId) ->
-        Pids = revolver:map(?BK_POOL_CONSUMER(ConsumerId), fun(Pid) -> Pid end),
-        lists:foreach(fun(Pid) -> beanstalkd_consumer:stop(Pid) end, Pids)
+        case catch revolver:map(?BK_POOL_CONSUMER(ConsumerId), fun(Pid) -> Pid end) of
+            Pids when is_list(Pids) ->
+                lists:foreach(fun(Pid) -> beanstalkd_consumer:stop(Pid) end, Pids);
+            _ ->
+                ok
+        end
     end,
 
     lists:foreach(StopFun, Consumers),
@@ -68,38 +64,49 @@ stop(_State) ->
     ok.
 
 wait_for_jobs(Pool) ->
-    {[_, {_,InProgressJobs}],_} = ratx:info(Pool),
-
-    case InProgressJobs of
-        0 ->
-            ?INFO_MSG("All jobs for pool ~p completed", [Pool]),
-            ok;
-        _ ->
-            ?INFO_MSG("Still waiting for ~p jobs in pool ~p", [InProgressJobs, Pool]),
-            timer:sleep(1000),
-            wait_for_jobs(Pool)
+    case catch ratx:info(Pool) of
+        {[_, {_,InProgressJobs}],_} ->
+            case InProgressJobs of
+                0 ->
+                    ?INFO_MSG("all jobs for pool ~p completed", [Pool]),
+                    ok;
+                _ ->
+                    ?INFO_MSG("still waiting for ~p jobs in pool ~p", [InProgressJobs, Pool]),
+                    timer:sleep(1000),
+                    wait_for_jobs(Pool)
+            end;
+        {'EXIT', _} ->
+            % not started
+            ok
     end.
 
 wait_for_consumers(ConsumersPool) ->
-    Pids = revolver:map(ConsumersPool, fun(Pid) -> Pid end),
-
-    case Pids of
+    case catch revolver:map(ConsumersPool, fun(Pid) -> Pid end) of
         [] ->
             ?INFO_MSG("all consumers processes were stopped for: ~p", [ConsumersPool]),
             ok;
-        List ->
+        List when is_list(List) ->
             ?INFO_MSG("still waiting for ~p consumers to stop in ~p", [length(List), ConsumersPool]),
             timer:sleep(1000),
-            wait_for_consumers(ConsumersPool)
+            wait_for_consumers(ConsumersPool);
+        {'EXIT', _} ->
+            % not started
+            ok
     end.
 
 wait_for_queue(Pool, Pid) ->
-    case beanstalkd_queue:jobs_queued(Pid) of
-        {ok, 0} ->
-            ?INFO_MSG("all queued jobs for pool ~p completed", [Pool]),
-            ok;
+    case catch beanstalkd_queue:jobs_queued(Pid) of
         {ok, JobsQueued} ->
-            ?INFO_MSG("still waiting for ~p jobs in queue for pool ~p", [JobsQueued, Pool]),
-            timer:sleep(1000),
-            wait_for_queue(Pool, Pid)
+            case JobsQueued of
+                0 ->
+                    ?INFO_MSG("all queued jobs for pool ~p pid: ~p completed", [Pool, Pid]),
+                    ok;
+                _ ->
+                    ?INFO_MSG("still waiting for ~p jobs in queue for pool ~p pid: ~p", [JobsQueued, Pool, Pid]),
+                    timer:sleep(1000),
+                    wait_for_queue(Pool, Pid)
+            end;
+        {'EXIT', _} ->
+            % not started
+            ok
     end.

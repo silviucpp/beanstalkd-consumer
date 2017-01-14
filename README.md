@@ -41,6 +41,7 @@ Use a config similar with:
 
         {servers, [
             {default_server, [
+                {start_at_startup, true},
                 {connection_info, [{host, {127,0,0,1}}, {port, 11300}, {timeout, 5000}]},
                 {queues_number, 1},
                 {consumers, [
@@ -60,6 +61,9 @@ Use a config similar with:
 
 Where
 
+- `start_at_startup` - specify if the consuming of messages should start imeediatly when the application is started. In case you have the 
+`beanstalkd_consumer` as dependency and you need to load more other stuffs into your current app before starting consuming events, you can put this 
+property on `false` and use `beanstalkd_consumer:start_consumers/0` to start the consumers.
 - `connection_info` - connection details
 - `queues_number` - number of processes that will handle the deletes and kick operations. Those are queued in case the 
 connection to the server is not up and are sent again once connection is established.
@@ -69,10 +73,6 @@ For each consumer:
 - `instances` - number of consumers
 - `callbacks` - `[{Tube, Module, InitFun/1, ProcessFun/3}]`. Each item in list is formed from the tube, module, init function, the function that will handle the jobs for that tube.
 - `concurrent_jobs` - how many concurrent jobs can run in parallel.
-
-Also you can use `app_init` to specify a module, function that will be called once `beanstalkd_consumer` application is started before creating the 
-consumers: ex: `{app_init, {my_module, function}}`. You can use this to do any stuffs that's required in order to have your consumers working properly (usefull when you have `beanstalkd_consumer` as a dependecy for you app)
-
 
 ```erlang
 application:start(beanstalkd_consumer).

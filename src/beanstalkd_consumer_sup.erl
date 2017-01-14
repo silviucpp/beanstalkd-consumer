@@ -11,36 +11,51 @@
 
 -behaviour(supervisor).
 
--export([start_link/0]).
--export([init/1]).
+-export([start_link/0, init/1]).
+
+-export([start_consumers/0]).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+
+start_consumers() ->
+    ServersFun = fun({ServerName, Params}) ->
+        BinServerName = atom_to_binary(ServerName, utf8),
+        ConnectionInfo = beanstalkd_utils:lookup(connection_info, Params, []),
+        ConsumersList = beanstalkd_utils:lookup(consumers, Params),
+
+        FunStartConsumer = fun({ConsumerName, ConsumerParams}) ->
+            [RatxSpecs, ConsumerChildSpecs, ConsumerPoolSpecs] = create_consumers(BinServerName, ConsumerName, ConnectionInfo, ConsumerParams),
+            {ok, _} = supervisor:start_child(?MODULE, RatxSpecs),
+            {ok, _} = supervisor:start_child(?MODULE, ConsumerChildSpecs),
+            {ok, _} = supervisor:start_child(?MODULE, ConsumerPoolSpecs)
+        end,
+
+        lists:foreach(FunStartConsumer, ConsumersList)
+    end,
+
+    lists:foreach(ServersFun, beanstalkd_utils:get_env(servers)).
 
 init([]) ->
     ServersFun = fun({ServerName, Params}, Acc) ->
         BinServerName = atom_to_binary(ServerName, utf8),
         ConnectionInfo = beanstalkd_utils:lookup(connection_info, Params, []),
         NumberOfQueues = beanstalkd_utils:lookup(queues_number, Params, ?DEFAULT_QUEUES_PER_POOL),
-        ConsumersList = beanstalkd_utils:lookup(consumers, Params),
-
+		StartQueuesStartup = beanstalkd_utils:lookup(start_at_startup, Params, true),
         QueuesSpecs = create_queues(BinServerName, ConnectionInfo, NumberOfQueues),
-        ConsumersSpecs = lists:foldl(fun({ConsumerName, ConsumerParams}, ConsumersAcc) -> create_consumers(BinServerName, ConsumerName, ConnectionInfo, ConsumerParams) ++ ConsumersAcc end, [], ConsumersList),
 
-        QueuesSpecs ++ ConsumersSpecs ++ Acc
+        case StartQueuesStartup of
+            false ->
+                 QueuesSpecs ++ Acc;
+            _ ->
+                ConsumersList = beanstalkd_utils:lookup(consumers, Params),
+                ConsumersSpecs = lists:foldl(fun({ConsumerName, ConsumerParams}, ConsumersAcc) -> create_consumers(BinServerName, ConsumerName, ConnectionInfo, ConsumerParams) ++ ConsumersAcc end, [], ConsumersList),
+                QueuesSpecs ++ ConsumersSpecs ++ Acc
+		end
     end,
 
     Servers = beanstalkd_utils:get_env(servers),
-
     {ok, {{one_for_one, 1000, 1}, lists:foldl(ServersFun, [], Servers)}}.
-
-revolver_options() ->
-    #{
-        min_alive_ratio          => 1,
-        reconnect_delay          => 10000,
-        max_message_queue_length => undefined,
-        connect_at_start         => true
-    }.
 
 create_queues(ServerName, ConnectionInfo, Instances) ->
     QueuePoolName = ?BK_POOL_QUEUE(ServerName),
@@ -67,8 +82,15 @@ create_consumers(ServerName, ConsumerName, ConnectionInfo, Params) ->
 
     RatxSpecs = worker(<<"rtx_", Identifier/binary>>, ratx, RatxArgs),
     ConsumerChildSpecs = worker(ConsumerSupervisorName, beanstalkd_worker_supervisor, [ConsumerSupervisorName, beanstalkd_consumer, Identifier, Instances, ConsumerArgs]),
-    ConsumerPool = worker(<<"consumer_revolver_", Identifier/binary>>, revolver, [ConsumerSupervisorName, ?BK_POOL_CONSUMER(Identifier), revolver_options()]),
-    [RatxSpecs , ConsumerChildSpecs , ConsumerPool].
+    ConsumerPoolSpecs = worker(<<"consumer_revolver_", Identifier/binary>>, revolver, [ConsumerSupervisorName, ?BK_POOL_CONSUMER(Identifier), revolver_options()]),
+    [RatxSpecs, ConsumerChildSpecs, ConsumerPoolSpecs].
+
+revolver_options() -> #{
+    min_alive_ratio          => 1,
+    reconnect_delay          => 10000,
+    max_message_queue_length => undefined,
+    connect_at_start         => true
+}.
 
 worker(Name, Module, Args) ->
     worker(Name, Module, 5000, Args).
