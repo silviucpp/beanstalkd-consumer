@@ -1,9 +1,9 @@
 {application, beanstalkd_consumer, [
     {description, "Erlang consumer framework for Beanstalkd work queue"},
-    {vsn, "1.6"},
+    {vsn, "1.7"},
     {registered, []},
-    {applications, [kernel, stdlib, lager]},
-    {included_applications, [ratx, revolver, ebeanstalkd]},
+    {applications, [kernel, stdlib, lager, ebeanstalkd]},
+    {included_applications, [ratx, revolver]},
     {mod, { beanstalkd_consumer_app, []}},
     {env, []}
 ]}.
