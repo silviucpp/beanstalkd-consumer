@@ -1,5 +1,4 @@
 -module(beanstalkd_utils).
--author("silviu.caragea").
 
 -export([
     lookup/2,

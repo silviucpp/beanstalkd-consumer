@@ -1,14 +1,25 @@
 -module(beanstalkd_consumer).
--author("silviu").
 
 -include_lib("ebeanstalkd/include/ebeanstalkd.hrl").
 -include("beanstalkd_consumer.hrl").
 
 -behaviour(gen_server).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
--export([start_link/1, stop/1]).
--export([start_consumers/0]).
+-export([
+
+    start_link/1,
+    start_consumers/0,
+    stop/1,
+
+    % gen_server
+
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
 -record(state, {
     conn,
@@ -33,15 +44,10 @@ init(Args) ->
 
     QPName = beanstalkd_utils:lookup(queue_pool_name, Args),
     CPName = beanstalkd_utils:lookup(pool_name, Args),
-
     CallbacksList = beanstalkd_utils:lookup(callbacks, Args),
 
-    FunCallbacks = fun(X, Acc) ->
-        case X of
-            {Tube, Module, InitFun, JobFun} ->
-                UserState = Module:InitFun(self()),
-                [{Tube, {Module, JobFun, UserState}} | Acc]
-        end
+    FunCallbacks = fun({Tube, Module, InitFun, JobFun}, Acc) ->
+        [{Tube, {Module, JobFun, Module:InitFun(self())}} | Acc]
     end,
 
     CallbacksMapped = lists:foldl(FunCallbacks, [], CallbacksList),
@@ -61,7 +67,14 @@ init(Args) ->
 
     MultiTubes = is_list(JobCallback),
 
-    {ok, #state{conn = Q, conn_state = down, queue_pool = QPName, consumer_pool = CPName, job_callback = JobCallback, multi_tubes = MultiTubes}}.
+    {ok, #state{
+        conn = Q,
+        conn_state = down,
+        queue_pool = QPName,
+        consumer_pool = CPName,
+        job_callback = JobCallback,
+        multi_tubes = MultiTubes
+    }}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State, get_timeout(State)}.
@@ -174,11 +187,11 @@ process_job(State, JobId, JobPayload, TubeName) ->
 
                     ok = beanstalkd_queue_pool:delete(State#state.queue_pool, JobId)
                 catch
-                    _: {bad_argument, Reason} ->
+                    ?EXCEPTION(_, {bad_argument, Reason}, _) ->
                         ?ERROR_MSG("delete malformated job payload id: ~p reason: ~p payload: ~p", [JobId, Reason, JobPayload]),
                         ok = beanstalkd_queue_pool:delete(State#state.queue_pool, JobId);
-                    _: Response ->
-                        ?ERROR_MSG("Job will stay in buried state id: ~p payload: ~p response: ~p stacktrace: ~p", [JobId, JobPayload, Response, erlang:get_stacktrace()])
+                    ?EXCEPTION(_, Response, Stacktrace) ->
+                        ?ERROR_MSG("Job will stay in buried state id: ~p payload: ~p response: ~p stacktrace: ~p", [JobId, JobPayload, Response, ?GET_STACK(Stacktrace)])
                 after
                     ok = ratx:done(State#state.consumer_pool)
                 end

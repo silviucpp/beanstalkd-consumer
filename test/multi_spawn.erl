@@ -1,5 +1,4 @@
 -module(multi_spawn).
--author("silviu.caragea").
 
 -export([do_work/2]).
 

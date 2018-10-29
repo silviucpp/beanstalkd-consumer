@@ -1,5 +1,4 @@
 -module(beanstalkd_queue).
--author("silviu.caragea").
 
 -include_lib("ebeanstalkd/include/ebeanstalkd.hrl").
 

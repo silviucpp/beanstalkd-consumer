@@ -1,7 +1,5 @@
 -module(beanstalkd_worker_supervisor).
 
--author("silviu").
-
 -behaviour(supervisor).
 
 -export([start_link/5]).

@@ -1,5 +1,4 @@
 -module(stress_test).
--author("silviu.caragea").
 
 -export([init/1, process/3, produce_jobs/3]).
 
