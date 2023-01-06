@@ -170,7 +170,7 @@ get_tube_name(_ , _Connection, _JobId) ->
 process_job(State, JobId, JobPayload, TubeName) ->
     case ratx:ask(State#state.consumer_pool) of
         drop ->
-            ?WARNING_MSG("drop message id: ~p payload: ~p tube:~p",[JobId, JobPayload, TubeName]),
+            %?WARNING_MSG("drop message id: ~p payload: ~p tube:~p",[JobId, JobPayload, TubeName]),
             ok = beanstalkd_queue_pool:kick_job(State#state.queue_pool, JobId),
             dropped;
         Ref when is_reference(Ref) ->

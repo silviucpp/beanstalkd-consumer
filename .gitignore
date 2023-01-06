@@ -5,3 +5,4 @@
 /log/
 *.iml
 *.DS_Store
+/_build/
