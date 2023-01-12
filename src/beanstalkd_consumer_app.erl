@@ -1,112 +1,102 @@
 -module(beanstalkd_consumer_app).
 
 -include_lib("ebeanstalkd/include/ebeanstalkd.hrl").
--include("beanstalkd_consumer.hrl").
+
+-define(BK_POOL_QUEUE(ServerName), binary_to_atom(<<"queue_", (ServerName)/binary>>, utf8)).
+-define(BK_POOL_CONSUMER(ServerName, ConsumerName), binary_to_atom(<<"consumer_" , (ServerName)/binary, "_", (ConsumerName)/binary>>, utf8)).
+
+-define(DEFAULT_QUEUES_PER_POOL, 1).
+-define(DEFAULT_CONSUMERS_PER_POOL, 1).
+-define(DEFAULT_CONCURRENCY, 1).
 
 -behaviour(application).
 
--export([start/2, stop/1, prep_stop/1]).
+-export([
+    start/2,
+    start_consumers/0,
+    prep_stop/1,
+    stop/1
+]).
 
 start(_StartType, _StartArgs) ->
+    ok = start_consumers(),
     beanstalkd_consumer_sup:start_link().
 
-prep_stop(_State) ->
-
-    Servers = beanstalkd_utils:get_env(servers),
-
-    ExtractIdentifiersFun = fun({ServerName, Params}, AccFinal) ->
-        ServerNameBin = atom_to_binary(ServerName, utf8),
-        ConsumersList = beanstalkd_utils:lookup(consumers, Params),
-
-        Fun = fun({ConsumerName, _}, Acc) ->
-            ConsumerNameBin = atom_to_binary(ConsumerName, utf8),
-            Identifier = <<ServerNameBin/binary, "_", ConsumerNameBin/binary>>,
-            [Identifier | Acc]
-        end,
-
-        lists:foldl(Fun, [], ConsumersList) ++ AccFinal
-    end,
-
-    Consumers = lists:foldl(ExtractIdentifiersFun, [], Servers),
-
-    %send the stop message to avoid reserving new jobs
-
-    StopFun = fun(ConsumerId) ->
-        case catch revolver:map(?BK_POOL_CONSUMER(ConsumerId), fun(Pid) -> Pid end) of
-            Pids when is_list(Pids) ->
-                lists:foreach(fun(Pid) -> beanstalkd_consumer:stop(Pid) end, Pids);
+start_consumers() ->
+    ServersFun = fun({ServerName, Params}) ->
+        case beanstalkd_utils:lookup(start_at_startup, Params) of
+            true ->
+                ServerNameBin = atom_to_binary(ServerName, utf8),
+                ConnectionInfo = beanstalkd_utils:lookup(connection_info, Params, []),
+                ConsumersList = beanstalkd_utils:lookup(consumers, Params),
+                QueuesNrInstances = beanstalkd_utils:lookup(queues_number, Params, ?DEFAULT_QUEUES_PER_POOL),
+                {ok, QueuePoolId} = create_queues(ServerNameBin, ConnectionInfo, QueuesNrInstances),
+                ok = create_consumer_pool(ServerNameBin, ConnectionInfo, QueuePoolId, ConsumersList);
             _ ->
                 ok
         end
     end,
 
-    lists:foreach(StopFun, Consumers),
+    lists:foreach(ServersFun, beanstalkd_utils:get_env(servers)).
 
-    %wait for all consumers to stop
+prep_stop(_State) ->
+    Servers = beanstalkd_utils:get_env(servers),
 
-    lists:foreach(fun(ConsumerId) -> wait_for_consumers(?BK_POOL_CONSUMER(ConsumerId)) end , Consumers),
+    % stop consumers
 
-    %%wait until all running jobs will complete
-
-    lists:foreach(fun(ConsumerId) -> wait_for_jobs(binary_to_atom(ConsumerId, utf8)) end, Consumers),
-
-    %%wait all queues to be cleared before stopping
-
-    WaitQueuesFun = fun({Name, _}) ->
-        NameBin = atom_to_binary(Name, utf8),
-        Pids = revolver:map(?BK_POOL_QUEUE(NameBin), fun(Pid) -> Pid end),
-        lists:foreach(fun(Pid) ->  wait_for_queue(Name, Pid) end, Pids)
+    StopFun = fun({ServerName, Params}) ->
+        ServerNameBin = atom_to_binary(ServerName, utf8),
+        Fun = fun({ConsumerName, _}) -> ok = erlpool:stop_pool(?BK_POOL_CONSUMER(ServerNameBin, atom_to_binary(ConsumerName, utf8))) end,
+        lists:foreach(Fun, beanstalkd_utils:lookup(consumers, Params))
     end,
 
-    lists:foreach(WaitQueuesFun, Servers).
+    ok = lists:foreach(StopFun, Servers),
+
+    % stop queues
+
+    ok = lists:foreach(fun({Name, _}) -> ok = erlpool:stop_pool(?BK_POOL_QUEUE(atom_to_binary(Name, utf8))) end, Servers).
 
 stop(_State) ->
     ok.
 
-wait_for_jobs(Pool) ->
-    case catch ratx:info(Pool) of
-        {[_, {_,InProgressJobs}],_} ->
-            case InProgressJobs of
-                0 ->
-                    ?INFO_MSG("all jobs for pool ~p completed", [Pool]),
-                    ok;
-                _ ->
-                    ?INFO_MSG("still waiting for ~p jobs in pool ~p", [InProgressJobs, Pool]),
-                    timer:sleep(1000),
-                    wait_for_jobs(Pool)
-            end;
-        {'EXIT', _} ->
-            % not started
-            ok
-    end.
+% internals
 
-wait_for_consumers(ConsumersPool) ->
-    case catch revolver:map(ConsumersPool, fun(Pid) -> Pid end) of
-        [] ->
-            ?INFO_MSG("all consumers processes were stopped for: ~p", [ConsumersPool]),
-            ok;
-        List when is_list(List) ->
-            ?INFO_MSG("still waiting for ~p consumers to stop in ~p", [length(List), ConsumersPool]),
-            timer:sleep(1000),
-            wait_for_consumers(ConsumersPool);
-        {'EXIT', _} ->
-            % not started
-            ok
-    end.
+create_queues(ServerName, ConnectionInfo, QueuesCount) ->
+    Args = [
+        {size, QueuesCount},
+        {start_mfa, {beanstalkd_queue, start_link, [ConnectionInfo]}},
+        {supervisor_period, 1},
+        {supervisor_intensity, 1000},
+        {supervisor_shutdown, infinity}
+    ],
+    Name = ?BK_POOL_QUEUE(ServerName),
+    ok = erlpool:start_pool(Name, Args),
+    {ok, Name}.
 
-wait_for_queue(Pool, Pid) ->
-    case catch beanstalkd_queue:jobs_queued(Pid) of
-        {ok, JobsQueued} ->
-            case JobsQueued of
-                0 ->
-                    ?INFO_MSG("all queued jobs for pool ~p pid: ~p completed", [Pool, Pid]),
-                    ok;
-                _ ->
-                    ?INFO_MSG("still waiting for ~p jobs in queue for pool ~p pid: ~p", [JobsQueued, Pool, Pid]),
-                    timer:sleep(1000),
-                    wait_for_queue(Pool, Pid)
-            end;
-        {'EXIT', _} ->
-            % not started
-            ok
-    end.
+create_consumer_pool(ServerNameBin, ConnectionInfo, QueuePoolId, Consumers) ->
+    FunCreate = fun ({ConsumerName, Params}) ->
+        ConsumerNameBin = atom_to_binary(ConsumerName, utf8),
+        ConsumerId = ?BK_POOL_CONSUMER(ServerNameBin, ConsumerNameBin),
+        Instances = beanstalkd_utils:lookup(instances, Params, ?DEFAULT_CONSUMERS_PER_POOL),
+        ConcurrentJobs = beanstalkd_utils:lookup(concurrent_jobs, Params, ?DEFAULT_CONCURRENCY),
+        WorkersPerInstance = erlang:min(1, trunc(ConcurrentJobs/Instances)),
+
+        ConsumerArgs = [
+            {id, ConsumerId},
+            {queue_pool_id, QueuePoolId},
+            {concurrent_jobs, WorkersPerInstance},
+            {connection_info, ConnectionInfo},
+            {callbacks, beanstalkd_utils:lookup(callbacks, Params)}
+        ],
+
+        Args = [
+            {size, Instances},
+            {start_mfa, {beanstalkd_consumer, start_link, [ConsumerArgs]}},
+            {supervisor_period, 1},
+            {supervisor_intensity, 1000},
+            {supervisor_shutdown, infinity}
+        ],
+
+        ok = erlpool:start_pool(ConsumerId, Args)
+    end,
+    lists:foreach(FunCreate, Consumers).

@@ -6,11 +6,26 @@
 
 -define(PUSH_JOB(Job), {push_job, Job}).
 
--export([start_link/1, jobs_queued/1, delete/2, kick_job/2]).
+-export([
+    start_link/1,
+    jobs_queued/1,
+    delete/2,
+    kick_job/2,
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
+]).
 
--record(state, {queue, queue_size, connection, connection_state}).
+-record(state, {
+    queue,
+    queue_count,
+    connection_pid,
+    connection_state
+}).
 
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
@@ -24,69 +39,76 @@ delete(Pid, JobId) ->
 kick_job(Pid, JobId)->
     gen_server:call(Pid, ?PUSH_JOB({kick_job, JobId})).
 
-init(Args) ->
-    Tube = beanstalkd_utils:get_tube(client, beanstalkd_utils:lookup(tube, Args)),
-    ArgsNew = lists:keyreplace(tube, 1, Args, {tube, Tube}),
+init(Args0) ->
+    Tube = beanstalkd_utils:get_tube(client, beanstalkd_utils:lookup(tube, Args0)),
+    Args = beanstalkd_utils:replace(tube, Tube, Args0),
+    {ok, ConnectionPid} = ebeanstalkd:connect([{monitor, self()} | Args]),
+    {ok, #state{
+        connection_state = down,
+        connection_pid = ConnectionPid,
+        queue = queue:new(),
+        queue_count =  0
+    }}.
 
-    {ok, Connection} = ebeanstalkd:connect([{monitor, self()} | ArgsNew]),
-    {ok, #state{connection_state = down, connection = Connection, queue = [], queue_size = 0}}.
+handle_call({push_job, Job}, _From, #state{queue = Queue, queue_count = QueueSize} = State) ->
+    NewState = State#state{queue = queue:in(Job, Queue), queue_count = QueueSize + 1},
+    {reply, ok, NewState, get_timeout_for_state(NewState)};
 
-handle_call({push_job, Job}, _From, State) ->
-    NewState = State#state{queue = [Job | State#state.queue], queue_size = State#state.queue_size + 1 },
-    Timeout = get_timeout(NewState),
-    {reply, ok, NewState, Timeout};
-
-handle_call(queue_size, _From, State) ->
-    {reply, {ok, State#state.queue_size}, State, get_timeout(State)};
+handle_call(queue_size, _From, #state{queue_count = QueueSize} = State) ->
+    {reply, {ok, QueueSize}, State, get_timeout_for_state(State)};
 
 handle_call(_Request, _From, State) ->
-    {reply, ok, State, get_timeout(State)}.
+    {reply, ok, State, get_timeout_for_state(State)}.
 
 handle_cast(_Request, State) ->
-    {noreply, State, get_timeout(State)}.
+    {noreply, State, get_timeout_for_state(State)}.
 
 handle_info(timeout, State) ->
     consume_job_queue(State);
 
-handle_info({connection_status, {up, _Pid}}, State) ->
-    ?INFO_MSG("received connection up",[]),
-    NewState = State#state{connection_state = up},
-    {noreply, NewState, get_timeout(NewState)};
-
-handle_info({connection_status, {down, _Pid}}, State) ->
-    ?INFO_MSG("received connection down", []),
-    {noreply, State#state{connection_state = down}};
+handle_info({connection_status, {ConnectionStatus, _Pid}}, State) ->
+    ?INFO_MSG("queue: ~p received connection ~p ...",[self(), ConnectionStatus]),
+    NewState = State#state{connection_state = ConnectionStatus},
+    case ConnectionStatus of
+        up ->
+            {noreply, NewState, get_timeout_for_state(NewState)};
+        _ ->
+            {noreply, NewState}
+    end;
 
 handle_info({'EXIT', _FromPid, Reason} , State) ->
-    ?ERROR_MSG("beanstalk connection died: ~p", [Reason]),
+    ?ERROR_MSG("queue: ~p  beanstalk connection died: ~p", [self(), Reason]),
     {stop, {error, Reason}, State};
 
 handle_info(Info, State) ->
-    ?ERROR_MSG("received unexpected message: ~p", [Info]),
-    {noreply, State, get_timeout(State)}.
+    ?ERROR_MSG("queue: ~p received unexpected message: ~p", [self(), Info]),
+    {noreply, State, get_timeout_for_state(State)}.
 
-terminate(_Reason, State) ->
-    case State#state.connection of
+terminate(_Reason, #state{connection_pid = Connection}) ->
+    case Connection of
         undefined ->
             ok;
         _ ->
-            catch ebeanstalkd:close(State#state.connection),
+            catch ebeanstalkd:close(Connection),
             ok
     end.
 
 code_change(_OldVsn, State, _Extra) ->
-    {ok, State, get_timeout(State)}.
+    {ok, State, get_timeout_for_state(State)}.
 
-consume_job_queue(State) ->
-    case State#state.connection_state of
+% internals
+
+consume_job_queue(#state{connection_state = ConnectionStatus, connection_pid = Connection, queue = Queue, queue_count = QueueSize} =  State) ->
+    case ConnectionStatus of
         up ->
-            case State#state.queue of
-                [H|T] ->
-                    case run_job(State#state.connection, H) of
+            case queue:out(Queue) of
+                {{value, Job}, NewQueue} ->
+                    case run_job(Connection, Job) of
                         true ->
-                            {noreply, State#state{queue = T, queue_size = State#state.queue_size - 1}, get_timeout(T)};
+                            NewQueueSize = QueueSize - 1,
+                            {noreply, State#state{queue = NewQueue, queue_count = NewQueueSize}, get_timeout_for_queue_size(NewQueueSize)};
                         _ ->
-                            {noreply, State, 0}
+                            {noreply, State, 50}
                     end;
                 _ ->
                     {noreply, State}
@@ -98,7 +120,6 @@ consume_job_queue(State) ->
 run_job(Connection, {JobType, JobId} = Job) ->
     case run_job(JobType, Connection, JobId) of
         true ->
-            ?DEBUG_MSG("job completed : ~p",[Job]),
             true;
         {not_found} ->
             ?WARNING_MSG("job not found: ~p",[Job]),
@@ -124,14 +145,15 @@ run_job(kick_job, Connection, JobId) ->
             Result
     end.
 
-get_timeout(State) when is_record(State, state) ->
-    case State#state.connection_state of
-        up ->
-            get_timeout(State#state.queue);
+get_timeout_for_state(#state{connection_state = ConnectionState, queue_count = QueueCount})->
+    case ConnectionState == up andalso QueueCount > 0 of
+        true ->
+            0;
         _ ->
             infinity
-    end;
-get_timeout([]) ->
-    infinity;
-get_timeout(_) ->
-    0.
+    end.
+
+get_timeout_for_queue_size(Size) when Size >  0 ->
+    0;
+get_timeout_for_queue_size(_) ->
+    infinity.

@@ -1,12 +1,20 @@
 -module(beanstalkd_utils).
 
 -export([
+    get_env/1,
     lookup/2,
     lookup/3,
     replace/3,
-    get_env/1,
     get_tube/2
 ]).
+
+get_env(Key) ->
+    case application:get_env(beanstalkd_consumer, Key) of
+        {ok, Value} ->
+            Value;
+        undefined ->
+            undefined
+    end.
 
 lookup(Key, List) ->
     lookup(Key, List, undefined).
@@ -29,10 +37,3 @@ get_tube(consumer, Tube) ->
 get_tube(client, Tube) ->
     {use, Tube}.
 
-get_env(Key) ->
-    case application:get_env(beanstalkd_consumer, Key) of
-        {ok, Value} ->
-            Value;
-        undefined ->
-            undefined
-    end.
