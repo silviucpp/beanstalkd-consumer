@@ -19,12 +19,15 @@
 ]).
 
 start(_StartType, _StartArgs) ->
-    ok = start_consumers(),
+    ok = start_consumers(false),
     beanstalkd_consumer_sup:start_link().
 
 start_consumers() ->
+    start_consumers(true).
+
+start_consumers(Force) ->
     ServersFun = fun({ServerName, Params}) ->
-        case beanstalkd_utils:lookup(start_at_startup, Params) of
+        case Force orelse beanstalkd_utils:lookup(start_at_startup, Params) of
             true ->
                 ServerNameBin = atom_to_binary(ServerName, utf8),
                 ConnectionInfo = beanstalkd_utils:lookup(connection_info, Params, []),
