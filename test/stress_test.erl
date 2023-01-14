@@ -1,6 +1,12 @@
 -module(stress_test).
 
--export([init/1, process/3, produce_jobs/3]).
+-behaviour(beanstalkd_consumer).
+
+-export([
+    init/1,
+    process/3,
+    produce_jobs/3
+]).
 
 -define(TUBES, [
     <<"tube1">>,
@@ -17,14 +23,14 @@
     <<"tube12">>
 ]).
 
-init(Pid) ->
-    io:format(<<"~p:init: ~p ~n">>, [?MODULE, Pid]),
-    ok.
+init(TubeName) ->
+    io:format(<<"~p:init: ~p ~n">>, [?MODULE, TubeName]),
+    {ok, null}.
 
-process(Id, _Payload, State) ->
-    case Id rem 1000 =:=0 of
+process(JobId, _JobPayload, State)  ->
+    case JobId rem 1000 =:=0 of
         true ->
-            io:format(<<"~p:processed: ~p ~n">>, [?MODULE, {Id, State}]);
+            io:format(<<"~p:processed: ~p ~n">>, [?MODULE, {JobId, State}]);
         _ ->
             ok
     end.
@@ -32,9 +38,9 @@ process(Id, _Payload, State) ->
 produce_jobs(NrProcesses, NrReq, PayloadSize) ->
 
     ReqPerProcess = round(NrReq/NrProcesses),
+    Self = self(),
 
     FunJobs = fun() ->
-
         {ok, Conn} = ebeanstalkd:connect(),
 
         FunPut = fun(_) ->
@@ -43,10 +49,10 @@ produce_jobs(NrProcesses, NrReq, PayloadSize) ->
             {inserted, _} = ebeanstalkd:put_in_tube(Conn, Tube, Payload)
         end,
 
-        lists:foreach(FunPut, lists:seq(1, ReqPerProcess)),
-
-        ebeanstalkd:close(Conn)
+        ok = lists:foreach(FunPut, lists:seq(1, ReqPerProcess)),
+        ok = ebeanstalkd:close(Conn)
     end,
 
-    multi_spawn:do_work(FunJobs, NrProcesses),
+    Pids = [spawn_link(fun() -> FunJobs(), Self ! {self(), done} end) || _ <- lists:seq(1, NrProcesses)],
+    [receive {Pid, done} -> ok end || Pid <- Pids],
     io:format(<<"**all jobs sent**~n">>, []).
