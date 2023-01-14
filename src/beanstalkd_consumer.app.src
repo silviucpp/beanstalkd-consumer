@@ -1,5 +1,7 @@
 {application, beanstalkd_consumer, [
     {description, "Erlang consumer framework for Beanstalkd work queue"},
+    {licenses, ["MIT"]},
+    {links,[{"Github","https://github.com/silviucpp/beanstalkd-consumer"}]},
     {vsn, "3.0.0"},
     {registered, []},
     {applications, [
@@ -11,5 +13,15 @@
     ]},
     {included_applications, []},
     {mod, { beanstalkd_consumer_app, []}},
-    {env, []}
+    {env, []},
+    {files, [
+        "LICENSE*",
+        "*.MD",
+        "rebar.config",
+        "rebar.lock",
+        "src/*.erl",
+        "src/*.src",
+        "test/*.erl",
+        "test/sys.config"
+    ]}
 ]}.

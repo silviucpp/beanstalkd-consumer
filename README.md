@@ -1,44 +1,60 @@
 # beanstalkd-consumer
 
-Erlang consumer framework for beanstalkd work queue
+[![Build Status](https://travis-ci.com/silviucpp/beanstalkd-consumer.svg?branch=master)](https://travis-ci.com/github/silviucpp/beanstalkd-consumer)
+[![GitHub](https://img.shields.io/github/license/silviucpp/beanstalkd-consumer)](https://github.com/silviucpp/beanstalkd-consumer/blob/master/LICENSE)
+[![Hex.pm](https://img.shields.io/hexpm/v/beanstalkd-consumer)](https://hex.pm/packages/beanstalkd-consumer)
 
-Idea behind the project
------------------------
+Erlang consumer framework for beanstalkd work queue.
+
+### Idea behind the project
 
 - An easy and configurable app that it's starting a pool of consumers which executes jobs from a beanstalkd server.
-- You can tune the concurrency of jobs that are executed in parallel
-- In case the connection between consumer and server goes down minimise the damage (jobs being cached by another consumer and executed again for example).
+- You can limit the number of concurrent jobs.
 - In case the consumer is stopped will wait for all jobs in progress to complete.
+- Make sure a job is not executed twice.
 
-What's the lifetime of a job
-----------------------------
+### What's the lifetime of a job
 
 - Once a job is reserved before being sent to be processed is buried first. 
-- In case the processing was completed fine (no exception triggered) then the job is deleted 
-- In case job processing is failing is left in the buried state. 
-- In case for some reason the job was not scheduled (processing limits hit or any other reason) the job is scheduled again for being processed (kick-job).
-- All delete/kick operations are taking place on another processes where are queued so in case connection to the server goes down the operations are not lost.
+- In case the execution completed fine (no exception triggered) then the job is deleted. 
+- In case job execution failed, the job is left in the buried state for manual review.
+- All delete operations are taking place on another processes where are queued so in case connection to the server goes down the operations are not lost.
 
-Quick start
------------
+### Quick start
 
-Define a module with a function with arity 3 that will process the jobs and one with arity one used for init process for example:
+All consumers need to implement the `beanstalkd_consumer` behaviour. 
 
 ```erlang
--module(test).
--export([init/1, process/2]).
-init(Pid) ->
-    [{<<"arg1">>, <<"val1">>}, {<<"arg2">>, <<"val2">>}].
-process(Id, Payload, State) ->
-    io:format(<<"id:~p job:~p state:~p ~n">>, [Id, Payload, State]).
+-callback init(TubeName::binary()) ->
+    {ok, State::any()}.
+
+-callback process(JobId::non_neg_integer(), JobPayload::binary(), State::any()) ->
+    any().
 ```
 
-Use a config similar with:
+Example:
+
+```erlang
+-module(dummy_consumer).
+
+-export([
+    init/1, 
+    process/3
+]).
+
+init(TubeName) ->
+    io:format(<<"~p:init: ~p ~n">>, [?MODULE, TubeName]),
+    {ok, #{}}.
+
+process(JobId, JobPayload, State)  ->
+    io:format(<<"~p:process: ~p ~n">>, [?MODULE, {JobId, JobPayload, State}]).
+```
+
+You can define the consumer pools into `sys.config` as fallow:
 
 ```erlang
 [
     {beanstalkd_consumer, [
-
         {servers, [
             {default_server, [
                 {start_at_startup, true},
@@ -48,9 +64,9 @@ Use a config similar with:
                     {consumer_silviu, [
                         {instances, 1},
                         {callbacks, [
-                            {<<"tube_name">>, test, init, process}
+                            {<<"tube_name">>, dummy_consumer}
                         ]},
-                        {concurrent_jobs, 100000}
+                        {concurrent_jobs, 1000}
                     ]}
                 ]}
             ]}
@@ -61,19 +77,14 @@ Use a config similar with:
 
 Where
 
-- `start_at_startup` - specify if the consuming of messages should start imeediatly when the application is started. In case you have the 
-`beanstalkd_consumer` as dependency and you need to load more other stuffs into your current app before starting consuming events, you can put this 
-property on `false` and use `beanstalkd_consumer:start_consumers/0` to start the consumers.
-- `connection_info` - connection details
-- `queues_number` - number of processes that will handle the deletes and kick operations. Those are queued in case the 
-connection to the server is not up and are sent again once connection is established.
+- `start_at_startup` - specify if the consuming of messages should start right away when the application is started. In case you have the `beanstalkd_consumer` as dependency and you need to load more other stuffs into your current app before starting consuming events, you can put this property on `false` and use `beanstalkd_consumer_app:start_consumers/0` to start the consumers.
+- `connection_info` - connection details. See [ebeanstalkd][1] for details.
+- `queues_number` - number of processes that will handle the `delete` operations. Those are queued in case the connection to the server is not up and are sent again once connection is established.
 
 For each consumer:
 
-- `instances` - number of consumers
-- `callbacks` - `[{Tube, Module, InitFun/1, ProcessFun/3}]`. Each item in list is formed from the tube, module, init function, the function that will handle the jobs for that tube.
+- `instances` - number of consumer instances. 
+- `callbacks` - `[{Tube, Module}]`. Each item in list is formed from the tub name and the module that will handle the jobs for that tube.
 - `concurrent_jobs` - how many concurrent jobs can run in parallel.
 
-```erlang
-application:start(beanstalkd_consumer).
-```
+[1]:https://github.com/silviucpp/ebeanstalkd
