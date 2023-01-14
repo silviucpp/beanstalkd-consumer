@@ -71,7 +71,7 @@ init(Args) ->
     end,
 
     ParentPid = self(),
-    AllWorkers = sets:from_list(lists:map(fun(_) -> spawn_link(fun() -> worker_loop(QueuePoolId, ParentPid, self()) end) end, lists:seq(1, ConcurrentJobsCount))),
+    AllWorkers = queue:from_list(lists:map(fun(_) -> spawn_link(fun() -> worker_loop(QueuePoolId, ParentPid, self()) end) end, lists:seq(1, ConcurrentJobsCount))),
 
     {ok, #state{
         id = {beanstalkd_utils:lookup(id, Args), ParentPid},
@@ -81,7 +81,7 @@ init(Args) ->
         is_multi_tube = is_map(JobCallbacks),
         callbacks = JobCallbacks,
 
-        idle_workers = sets:new(),
+        idle_workers = queue:new(),
         all_workers = AllWorkers
     }}.
 
@@ -100,20 +100,20 @@ handle_info(timeout, #state{
     callbacks = Callbacks,
     is_multi_tube = IsMultiTube,
     idle_workers = IdleWorkers} = State) ->
-    case ConnectionState == up andalso sets:is_empty(IdleWorkers) == false of
+    case ConnectionState == up andalso queue:is_empty(IdleWorkers) == false of
         true ->
             case ebeanstalkd:reserve(ConnectionPid, ?RESERVE_TIMEOUT_SECONDS) of
                 {timed_out} ->
                     {noreply, State, 0};
                 {reserved, JobId, JobPayload} ->
-                    [WorkerPid|_] = sets:to_list(IdleWorkers),
+                    {{value, WorkerPid}, NewIdleWorkers} = queue:out(IdleWorkers),
 
                     case get_worker_for_job(IsMultiTube, ConnectionPid, JobId, Callbacks) of
                         {ok, WorkerState} ->
                             case ebeanstalkd:bury(ConnectionPid, JobId) of
                                 {buried} ->
                                     WorkerPid ! {handle_job, JobId, JobPayload, WorkerState},
-                                    NewState = State#state{idle_workers = sets:del_element(WorkerPid, IdleWorkers)},
+                                    NewState = State#state{idle_workers = NewIdleWorkers},
                                     {noreply, NewState, get_state_timeout(NewState)};
                                 Error ->
                                     ?ERROR_MSG("consumer: ~p received unexpected bury result for job: ~p error: ~p", [ConsumerId, JobId, Error]),
@@ -132,7 +132,7 @@ handle_info(timeout, #state{
     end;
 
 handle_info({idle_worker, WorkerPid}, #state{idle_workers = IdleWorkers} = State) ->
-    NewState = State#state{idle_workers = sets:add_element(WorkerPid, IdleWorkers)},
+    NewState = State#state{idle_workers = queue:in(WorkerPid, IdleWorkers)},
     {noreply, NewState, get_state_timeout(NewState)};
 
 handle_info({connection_status, {ConnectionStatus, _Pid}}, #state{id = ConsumerId} = State) ->
@@ -152,8 +152,8 @@ handle_info({'EXIT', FromPid, Reason}, #state{
             ?ERROR_MSG("consumer: ~p -> beanstalk connection died with reason: ~p", [ConsumerId, Reason]),
             {stop, Reason, State};
         _ ->
-            NewAllWorkers = sets:del_element(FromPid, AllWorkers),
-            NewIdleWorkers = sets:del_element(FromPid, IdleWorkers),
+            NewAllWorkers = queue:delete(FromPid, AllWorkers),
+            NewIdleWorkers = queue:delete(FromPid, IdleWorkers),
 
             case Reason of
                 normal ->
@@ -164,7 +164,7 @@ handle_info({'EXIT', FromPid, Reason}, #state{
                     ?ERROR_MSG("consumer: ~p -> workers died with reason: ~p .replacing dead worker ...", [ConsumerId, Reason]),
                     ParentPid = self(),
                     NewWorkerPid = spawn_link(fun() -> worker_loop(QueuePoolId, ParentPid, self()) end),
-                    NewState = State#state{all_workers = sets:add_element(NewWorkerPid, NewAllWorkers), idle_workers = NewIdleWorkers},
+                    NewState = State#state{all_workers = queue:in(NewWorkerPid, NewAllWorkers), idle_workers = NewIdleWorkers},
                     {noreply, NewState, get_state_timeout(NewState)}
             end
     end;
@@ -175,7 +175,7 @@ handle_info(Info, #state{id = ConsumerId} = State) ->
 
 terminate(Reason, #state{id = ConsumerId, all_workers = AllWorkers}) ->
     ?INFO_MSG("consumer: ~p -> terminate with reason: ~p", [ConsumerId, Reason]),
-    ok = stop_workers_sync(sets:to_list(AllWorkers), ConsumerId).
+    ok = stop_workers_sync(queue:to_list(AllWorkers), ConsumerId).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State, get_state_timeout(State)}.
@@ -183,7 +183,7 @@ code_change(_OldVsn, State, _Extra) ->
 % internals
 
 get_state_timeout(#state{conn_state = ConnState, idle_workers = IdleWorkers}) ->
-    case ConnState == up andalso sets:is_empty(IdleWorkers) == false of
+    case ConnState == up andalso queue:is_empty(IdleWorkers) == false of
         true ->
             0;
         _ ->
