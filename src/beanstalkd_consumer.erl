@@ -1,7 +1,6 @@
 -module(beanstalkd_consumer).
 
 -include_lib("ebeanstalkd/include/ebeanstalkd.hrl").
--include("beanstalkd_consumer.hrl").
 
 -define(RESERVE_TIMEOUT_SECONDS, 1).
 
@@ -122,11 +121,11 @@ handle_info(timeout, #state{
                             end;
                         Error ->
                             ?ERROR_MSG("consumer: ~p received unexpected result for getting worker state job: ~p error: ~p", [ConsumerId, JobId, Error]),
-                            {noreply, State, 0}
+                            {noreply, State, 100}
                     end;
                 Error ->
                     ?ERROR_MSG("consumer: ~p received unexpected reserve result: ~p",[ConsumerId, Error]),
-                    {noreply, State, 0}
+                    {noreply, State, 1000}
             end;
         _ ->
             {noreply, State}
@@ -151,8 +150,7 @@ handle_info({'EXIT', FromPid, Reason}, #state{
     case FromPid of
         Connection ->
             ?ERROR_MSG("consumer: ~p -> beanstalk connection died with reason: ~p", [ConsumerId, Reason]),
-            ok = stop_workers_sync(sets:to_list(AllWorkers), ConsumerId),
-            {stop, {error, Reason}, State#state{all_workers = sets:new()}};
+            {stop, Reason, State};
         _ ->
             NewAllWorkers = sets:del_element(FromPid, AllWorkers),
             NewIdleWorkers = sets:del_element(FromPid, IdleWorkers),

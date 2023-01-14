@@ -1,7 +1,7 @@
 {"1.2.0",
 [{<<"ebeanstalkd">>,
   {git,"https://github.com/silviucpp/ebeanstalkd",
-       {ref,"3a52523a4e2e42ef2c60ecbed06a1d2582c36db7"}},
+       {ref,"9f70add60280198536b7c938dc4944886a4e1313"}},
   0},
  {<<"erlpool">>,{pkg,<<"erlpool">>,<<"1.4.2">>},0},
  {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},2},
