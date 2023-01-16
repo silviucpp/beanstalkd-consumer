@@ -82,7 +82,7 @@ create_consumer_pool(ServerNameBin, ConnectionInfo, QueuePoolId, Consumers) ->
         ConsumerId = ?BK_POOL_CONSUMER(ServerNameBin, ConsumerNameBin),
         Instances = beanstalkd_utils:lookup(instances, Params, ?DEFAULT_CONSUMERS_PER_POOL),
         ConcurrentJobs = beanstalkd_utils:lookup(concurrent_jobs, Params, ?DEFAULT_CONCURRENCY),
-        WorkersPerInstance = erlang:min(1, trunc(ConcurrentJobs/Instances)),
+        WorkersPerInstance = erlang:max(1, trunc(ConcurrentJobs/Instances)),
 
         ConsumerArgs = [
             {id, ConsumerId},
