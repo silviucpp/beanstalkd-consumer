@@ -63,7 +63,7 @@ handle_info(timeout, State) ->
     consume_job_queue(State);
 
 handle_info({connection_status, {ConnectionStatus, _Pid}}, State) ->
-    ?INFO_MSG("queue: ~p received connection ~p ...",[self(), ConnectionStatus]),
+    ?LOG_INFO("queue: ~p received connection ~p ...",[self(), ConnectionStatus]),
     NewState = State#state{connection_state = ConnectionStatus},
     case ConnectionStatus of
         up ->
@@ -73,11 +73,11 @@ handle_info({connection_status, {ConnectionStatus, _Pid}}, State) ->
     end;
 
 handle_info({'EXIT', _FromPid, Reason} , State) ->
-    ?ERROR_MSG("queue: ~p  beanstalk connection died: ~p", [self(), Reason]),
+    ?LOG_ERROR("queue: ~p  beanstalk connection died: ~p", [self(), Reason]),
     {stop, {error, Reason}, State};
 
 handle_info(Info, State) ->
-    ?ERROR_MSG("queue: ~p received unexpected message: ~p", [self(), Info]),
+    ?LOG_ERROR("queue: ~p received unexpected message: ~p", [self(), Info]),
     {noreply, State, get_timeout_for_state(State)}.
 
 terminate(_Reason, #state{connection_pid = Connection}) ->
@@ -118,10 +118,10 @@ run_job(Connection, {JobType, JobId} = Job) ->
         true ->
             true;
         {not_found} ->
-            ?WARNING_MSG("job not found: ~p",[Job]),
+            ?LOG_WARNING("job not found: ~p",[Job]),
             true;
         UnexpectedResult ->
-            ?ERROR_MSG("job failed (send back to queue): ~p error: ~p",[Job, UnexpectedResult]),
+            ?LOG_ERROR("job failed (send back to queue): ~p error: ~p",[Job, UnexpectedResult]),
             false
     end.
 

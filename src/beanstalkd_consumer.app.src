@@ -2,12 +2,11 @@
     {description, "Erlang consumer framework for Beanstalkd work queue"},
     {licenses, ["MIT"]},
     {links,[{"Github","https://github.com/silviucpp/beanstalkd-consumer"}]},
-    {vsn, "3.0.2"},
+    {vsn, "3.0.3"},
     {registered, []},
     {applications, [
         kernel,
         stdlib,
-        lager,
         erlpool,
         ebeanstalkd
     ]},

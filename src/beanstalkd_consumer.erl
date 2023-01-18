@@ -86,11 +86,11 @@ init(Args) ->
     }}.
 
 handle_call(Request, _From, #state{id = ConsumerId} = State) ->
-    ?WARNING_MSG("consumer: ~p received unexpected call msg: ~p", [ConsumerId, Request]),
+    ?LOG_WARNING("consumer: ~p received unexpected call msg: ~p", [ConsumerId, Request]),
     {reply, ok, get_state_timeout(State)}.
 
 handle_cast(Request, #state{id = ConsumerId} = State) ->
-    ?WARNING_MSG("consumer: ~p received unexpected cast msg: ~p", [ConsumerId, Request]),
+    ?LOG_WARNING("consumer: ~p received unexpected cast msg: ~p", [ConsumerId, Request]),
     {noreply, State, get_state_timeout(State)}.
 
 handle_info(timeout, #state{
@@ -116,15 +116,15 @@ handle_info(timeout, #state{
                                     NewState = State#state{idle_workers = NewIdleWorkers},
                                     {noreply, NewState, get_state_timeout(NewState)};
                                 Error ->
-                                    ?ERROR_MSG("consumer: ~p received unexpected bury result for job: ~p error: ~p", [ConsumerId, JobId, Error]),
+                                    ?LOG_ERROR("consumer: ~p received unexpected bury result for job: ~p error: ~p", [ConsumerId, JobId, Error]),
                                     {noreply, State, 0}
                             end;
                         Error ->
-                            ?ERROR_MSG("consumer: ~p received unexpected result for getting worker state job: ~p error: ~p", [ConsumerId, JobId, Error]),
+                            ?LOG_ERROR("consumer: ~p received unexpected result for getting worker state job: ~p error: ~p", [ConsumerId, JobId, Error]),
                             {noreply, State, 100}
                     end;
                 Error ->
-                    ?ERROR_MSG("consumer: ~p received unexpected reserve result: ~p",[ConsumerId, Error]),
+                    ?LOG_ERROR("consumer: ~p received unexpected reserve result: ~p",[ConsumerId, Error]),
                     {noreply, State, 1000}
             end;
         _ ->
@@ -136,7 +136,7 @@ handle_info({idle_worker, WorkerPid}, #state{idle_workers = IdleWorkers} = State
     {noreply, NewState, get_state_timeout(NewState)};
 
 handle_info({connection_status, {ConnectionStatus, _Pid}}, #state{id = ConsumerId} = State) ->
-    ?INFO_MSG("consumer: ~p received connection status: ~p", [ConsumerId, ConnectionStatus]),
+    ?LOG_INFO("consumer: ~p received connection status: ~p", [ConsumerId, ConnectionStatus]),
     NewState = State#state{conn_state = ConnectionStatus},
     {noreply, NewState, get_state_timeout(NewState)};
 
@@ -149,7 +149,7 @@ handle_info({'EXIT', FromPid, Reason}, #state{
 } = State) ->
     case FromPid of
         Connection ->
-            ?ERROR_MSG("consumer: ~p -> beanstalk connection died with reason: ~p", [ConsumerId, Reason]),
+            ?LOG_ERROR("consumer: ~p -> beanstalk connection died with reason: ~p", [ConsumerId, Reason]),
             {stop, Reason, State};
         _ ->
             NewAllWorkers = queue:delete(FromPid, AllWorkers),
@@ -157,11 +157,11 @@ handle_info({'EXIT', FromPid, Reason}, #state{
 
             case Reason of
                 normal ->
-                    ?INFO_MSG("consumer: ~p -> workers finished with reason: ~p", [ConsumerId, Reason]),
+                    ?LOG_INFO("consumer: ~p -> workers finished with reason: ~p", [ConsumerId, Reason]),
                     NewState = State#state{all_workers = NewAllWorkers, idle_workers = NewIdleWorkers},
                     {noreply, NewState, get_state_timeout(NewState)};
                 _ ->
-                    ?ERROR_MSG("consumer: ~p -> workers died with reason: ~p .replacing dead worker ...", [ConsumerId, Reason]),
+                    ?LOG_ERROR("consumer: ~p -> workers died with reason: ~p .replacing dead worker ...", [ConsumerId, Reason]),
                     ParentPid = self(),
                     NewWorkerPid = spawn_link(fun() -> worker_loop(QueuePoolId, ParentPid, self()) end),
                     NewState = State#state{all_workers = queue:in(NewWorkerPid, NewAllWorkers), idle_workers = NewIdleWorkers},
@@ -170,11 +170,11 @@ handle_info({'EXIT', FromPid, Reason}, #state{
     end;
 
 handle_info(Info, #state{id = ConsumerId} = State) ->
-    ?WARNING_MSG("consumer: ~p received unexpected info msg: ~p", [ConsumerId, Info]),
+    ?LOG_WARNING("consumer: ~p received unexpected info msg: ~p", [ConsumerId, Info]),
     {noreply, State, get_state_timeout(State)}.
 
 terminate(Reason, #state{id = ConsumerId, all_workers = AllWorkers}) ->
-    ?INFO_MSG("consumer: ~p -> terminate with reason: ~p", [ConsumerId, Reason]),
+    ?LOG_INFO("consumer: ~p -> terminate with reason: ~p", [ConsumerId, Reason]),
     ok = stop_workers_sync(queue:to_list(AllWorkers), ConsumerId).
 
 code_change(_OldVsn, State, _Extra) ->
@@ -197,14 +197,14 @@ stop_workers_sync(WorkersPids, ConsumerId) ->
 wait_processes([H|T] = R, ConsumerId) ->
     case is_process_alive(H) of
         true ->
-            ?INFO_MSG("consumer: ~p still waiting for unfinished jobs", [ConsumerId]),
+            ?LOG_INFO("consumer: ~p still waiting for unfinished jobs", [ConsumerId]),
             timer:sleep(1000),
             wait_processes(R, ConsumerId);
         _ ->
             wait_processes(T, ConsumerId)
     end;
 wait_processes([], ConsumerId) ->
-    ?INFO_MSG("consumer: ~p -> all jobs completed ...", [ConsumerId]),
+    ?LOG_INFO("consumer: ~p -> all jobs completed ...", [ConsumerId]),
     ok.
 
 get_worker_for_job(true, ConnectionPid, JobId, Callbacks) ->
@@ -229,17 +229,17 @@ worker_loop(QueuePool, ConsumerPid, SelfPid) ->
                 ok = beanstalkd_queue_pool:delete(QueuePool, JobId)
             catch
                 ?EXCEPTION(_, {bad_argument, Reason}, _) ->
-                    ?ERROR_MSG("handler: ~p -> delete malformated job payload id: ~p reason: ~p payload: ~p", [Handler, JobId, Reason, JobPayload]),
+                    ?LOG_ERROR("handler: ~p -> delete malformated job payload id: ~p reason: ~p payload: ~p", [Handler, JobId, Reason, JobPayload]),
                     ok = beanstalkd_queue_pool:delete(QueuePool, JobId);
                 ?EXCEPTION(_, Response, Stacktrace) ->
-                    ?ERROR_MSG("handler: ~p -> job will stay in buried state id: ~p payload: ~p response: ~p stacktrace: ~p", [Handler, JobId, JobPayload, Response, ?GET_STACK(Stacktrace)])
+                    ?LOG_ERROR("handler: ~p -> job will stay in buried state id: ~p payload: ~p response: ~p stacktrace: ~p", [Handler, JobId, JobPayload, Response, ?GET_STACK(Stacktrace)])
             end,
             worker_loop(QueuePool, ConsumerPid, SelfPid);
         stop ->
-            ?INFO_MSG("worker: ~p successfully terminated ...", [SelfPid]),
+            ?LOG_INFO("worker: ~p successfully terminated ...", [SelfPid]),
             ok;
         {'EXIT', ConsumerPid, _Reason} ->
-            ?INFO_MSG("worker: ~p will end because consumer pid crashed ...", [SelfPid]),
+            ?LOG_INFO("worker: ~p will end because consumer pid crashed ...", [SelfPid]),
             ok
     end.
 
