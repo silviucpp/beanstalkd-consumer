@@ -198,7 +198,7 @@ wait_processes([H|T] = R, ConsumerId) ->
     case is_process_alive(H) of
         true ->
             ?LOG_INFO("consumer: ~p still waiting for unfinished jobs", [ConsumerId]),
-            timer:sleep(1000),
+            timer:sleep(100),
             wait_processes(R, ConsumerId);
         _ ->
             wait_processes(T, ConsumerId)

@@ -14,6 +14,7 @@
 -export([
     start/2,
     start_consumers/0,
+    stop_consumers/0,
     prep_stop/1,
     stop/1
 ]).
@@ -22,8 +23,35 @@ start(_StartType, _StartArgs) ->
     ok = start_consumers(false),
     beanstalkd_consumer_sup:start_link().
 
+prep_stop(_State) ->
+    stop_consumers().
+
+stop(_State) ->
+    ok.
+
 start_consumers() ->
     start_consumers(true).
+
+stop_consumers() ->
+    Servers = beanstalkd_utils:get_env(servers),
+
+    % stop consumers
+
+    StopFun = fun({ServerName, Params}) ->
+        ServerNameBin = atom_to_binary(ServerName, utf8),
+        Fun = fun({ConsumerName, _}) ->
+            erlpool:stop_pool(?BK_POOL_CONSUMER(ServerNameBin, atom_to_binary(ConsumerName, utf8)))
+       end,
+        lists:foreach(Fun, beanstalkd_utils:lookup(consumers, Params))
+    end,
+
+    ok = lists:foreach(StopFun, Servers),
+
+    % stop queues
+
+    ok = lists:foreach(fun({Name, _}) -> erlpool:stop_pool(?BK_POOL_QUEUE(atom_to_binary(Name, utf8))) end, Servers).
+
+% internals
 
 start_consumers(Force) ->
     ServersFun = fun({ServerName, Params}) ->
@@ -41,28 +69,6 @@ start_consumers(Force) ->
     end,
 
     lists:foreach(ServersFun, beanstalkd_utils:get_env(servers)).
-
-prep_stop(_State) ->
-    Servers = beanstalkd_utils:get_env(servers),
-
-    % stop consumers
-
-    StopFun = fun({ServerName, Params}) ->
-        ServerNameBin = atom_to_binary(ServerName, utf8),
-        Fun = fun({ConsumerName, _}) -> ok = erlpool:stop_pool(?BK_POOL_CONSUMER(ServerNameBin, atom_to_binary(ConsumerName, utf8))) end,
-        lists:foreach(Fun, beanstalkd_utils:lookup(consumers, Params))
-    end,
-
-    ok = lists:foreach(StopFun, Servers),
-
-    % stop queues
-
-    ok = lists:foreach(fun({Name, _}) -> ok = erlpool:stop_pool(?BK_POOL_QUEUE(atom_to_binary(Name, utf8))) end, Servers).
-
-stop(_State) ->
-    ok.
-
-% internals
 
 create_queues(ServerName, ConnectionInfo, QueuesCount) ->
     Args = [
