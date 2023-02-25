@@ -87,7 +87,7 @@ init(Args) ->
 
 handle_call(Request, _From, #state{id = ConsumerId} = State) ->
     ?LOG_WARNING("consumer: ~p received unexpected call msg: ~p", [ConsumerId, Request]),
-    {reply, ok, get_state_timeout(State)}.
+    {reply, ok, State, get_state_timeout(State)}.
 
 handle_cast(Request, #state{id = ConsumerId} = State) ->
     ?LOG_WARNING("consumer: ~p received unexpected cast msg: ~p", [ConsumerId, Request]),
