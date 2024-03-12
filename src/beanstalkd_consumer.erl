@@ -103,8 +103,6 @@ handle_info(timeout, #state{
     case ConnectionState == up andalso queue:is_empty(IdleWorkers) == false of
         true ->
             case ebeanstalkd:reserve(ConnectionPid, ?RESERVE_TIMEOUT_SECONDS) of
-                {timed_out} ->
-                    {noreply, State, 0};
                 {reserved, JobId, JobPayload} ->
                     {{value, WorkerPid}, NewIdleWorkers} = queue:out(IdleWorkers),
 
@@ -123,6 +121,10 @@ handle_info(timeout, #state{
                             ?LOG_ERROR("consumer: ~p received unexpected result for getting worker state job: ~p error: ~p", [ConsumerId, JobId, Error]),
                             {noreply, State, 100}
                     end;
+                {timed_out} ->
+                    {noreply, State, 0};
+                {deadline_soon} ->
+                    {noreply, State, 0};
                 Error ->
                     ?LOG_ERROR("consumer: ~p received unexpected reserve result: ~p",[ConsumerId, Error]),
                     {noreply, State, 1000}
