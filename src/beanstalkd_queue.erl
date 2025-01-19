@@ -10,6 +10,7 @@
     start_link/1,
     jobs_queued/1,
     delete/2,
+    kick_job/2,
 
     init/1,
     handle_call/3,
@@ -34,6 +35,9 @@ jobs_queued(Pid) ->
 
 delete(Pid, JobId) ->
     gen_server:call(Pid, ?PUSH_JOB({delete, JobId})).
+
+kick_job(Pid, JobId) ->
+    gen_server:call(Pid, ?PUSH_JOB({kick_job, JobId})).
 
 init(Args0) ->
     Tube = beanstalkd_utils:get_tube(client, beanstalkd_utils:lookup(tube, Args0)),
@@ -128,6 +132,13 @@ run_job(Connection, {JobType, JobId} = Job) ->
 run_job(delete, Connection, JobId) ->
     case ebeanstalkd:delete(Connection, JobId) of
         {deleted} ->
+            true;
+        Result ->
+            Result
+    end;
+run_job(kick_job, Connection, JobId) ->
+    case ebeanstalkd:kick_job(Connection, JobId) of
+        {kicked} ->
             true;
         Result ->
             Result

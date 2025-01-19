@@ -1,26 +1,33 @@
 # beanstalkd-consumer
 
-[![Build Status](https://travis-ci.com/silviucpp/beanstalkd-consumer.svg?branch=master)](https://travis-ci.com/github/silviucpp/beanstalkd-consumer)
-[![GitHub](https://img.shields.io/github/license/silviucpp/beanstalkd-consumer)](https://github.com/silviucpp/beanstalkd-consumer/blob/master/LICENSE)
+[![Build Status](https://app.travis-ci.com/silviucpp/beanstalkd-consumer.svg?branch=master)](https://travis-ci.com/github/silviucpp/beanstalkd-consumer)
+[![GitHub](https://img.shields.io/github/license/silviucpp/beanstalkd_consumer)](https://github.com/silviucpp/beanstalkd-consumer/blob/master/LICENSE)
 [![Hex.pm](https://img.shields.io/hexpm/v/beanstalkd_consumer)](https://hex.pm/packages/beanstalkd_consumer)
 
-Erlang consumer framework for beanstalkd work queue.
+Erlang Consumer Framework for Beanstalkd Work Queue.
 
-### Idea behind the project
+## Project Overview
 
-- An easy and configurable app that it's starting a pool of consumers which executes jobs from a beanstalkd server.
-- You can limit the number of concurrent jobs.
-- In case the consumer is stopped will wait for all jobs in progress to complete.
-- Make sure a job is not executed twice.
+This framework provides a simple and configurable solution for managing a pool of consumers that execute jobs from a Beanstalkd server.
 
-### What's the lifetime of a job
+## Key Features
 
-- Once a job is reserved before being sent to be processed is buried first. 
-- In case the execution completed fine (no exception triggered) then the job is deleted. 
-- In case job execution failed, the job is left in the buried state for manual review.
-- All delete operations are taking place on another processes where are queued so in case connection to the server goes down the operations are not lost.
+- Easily configurable to launch a pool of consumers for job execution.
+- Supports limiting the number of concurrent jobs.
+- Ensures all in-progress jobs are completed before the consumer shuts down.
+- Prevents duplicate execution of jobs.
 
-### Quick start
+## Job Lifecycle
+
+- **Reservation**: When a job is reserved, it is first buried before being sent for processing.
+- **Successful Completion**: If the job executes successfully without exceptions, it is deleted.
+- **Failed Execution**: If the job execution fails (any exception occurred), based on the exception will behave in the following way:
+    - If a job throws a `{bad_argument, Reason::any()}` exception, it is deleted (useful for malformed job payloads).
+    - If a job throws a `reschedule_job` exception, it is moved back to the ready state to be retried by the consumer.
+    - For any other exception, it remains in the buried state for manual review.
+- **Delete/Kick Operations**:All job for kick or delete operations are handled in a separate process and queued. If the connection to the server is lost, these operations are preserved and not discarded.
+ 
+## Quick start
 
 All consumers need to implement the `beanstalkd_consumer` behaviour. 
 
@@ -77,14 +84,14 @@ You can define the consumer pools into `sys.config` as fallow:
 
 Where
 
-- `start_at_startup` - specify if the consuming of messages should start right away when the application is started. In case you have the `beanstalkd_consumer` as dependency and you need to load more other stuffs into your current app before starting consuming events, you can put this property on `false` and use `beanstalkd_consumer_app:start_consumers/0` to start the consumers.
+- `start_at_startup` - specify if the consuming of messages should start right away when the application is started. In case you have the `beanstalkd_consumer` as dependency, and you need to load more other stuffs into your current app before starting consuming events, you can put this property on `false` and use `beanstalkd_consumer_app:start_consumers/0` to start the consumers.
 - `connection_info` - connection details. See [ebeanstalkd][1] for details.
 - `queues_number` - number of processes that will handle the `delete` operations. Those are queued in case the connection to the server is not up and are sent again once connection is established.
 
 For each consumer:
 
 - `instances` - number of consumer instances. 
-- `callbacks` - `[{Tube, Module}]`. Each item in list is formed from the tub name and the module that will handle the jobs for that tube.
+- `callbacks` - `[{Tube, Module}]`. Each item in the list is formed from the tub name and the module that will handle the jobs for that tube.
 - `concurrent_jobs` - how many concurrent jobs can run in parallel.
 
 [1]:https://github.com/silviucpp/ebeanstalkd

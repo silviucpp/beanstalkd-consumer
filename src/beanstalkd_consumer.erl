@@ -14,6 +14,8 @@
 
 -export([
     start_link/1,
+    throw_malformed_job/1,
+    throw_reschedule_job/0,
 
     init/1,
     handle_call/3,
@@ -42,6 +44,12 @@
 
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
+
+throw_malformed_job(Reason) ->
+    throw({bad_argument, Reason}).
+
+throw_reschedule_job() ->
+    throw(reschedule_job).
 
 init(Args) ->
     process_flag(trap_exit, true),
@@ -231,8 +239,11 @@ worker_loop(QueuePool, ConsumerPid, SelfPid) ->
                 ok = beanstalkd_queue_pool:delete(QueuePool, JobId)
             catch
                 ?EXCEPTION(_, {bad_argument, Reason}, _) ->
-                    ?LOG_ERROR("handler: ~p -> delete malformated job payload id: ~p reason: ~p payload: ~p", [Handler, JobId, Reason, JobPayload]),
+                    ?LOG_ERROR("handler: ~p -> delete malformed job payload id: ~p reason: ~p payload: ~p", [Handler, JobId, Reason, JobPayload]),
                     ok = beanstalkd_queue_pool:delete(QueuePool, JobId);
+                ?EXCEPTION(_, reschedule_job, _) ->
+                    ?LOG_WARNING("handler: ~p -> retry job payload id: ~p payload: ~p", [Handler, JobId, JobPayload]),
+                    ok = beanstalkd_queue_pool:kick_job(QueuePool, JobId);
                 ?EXCEPTION(_, Response, Stacktrace) ->
                     ?LOG_ERROR("handler: ~p -> job will stay in buried state id: ~p payload: ~p response: ~p stacktrace: ~p", [Handler, JobId, JobPayload, Response, ?GET_STACK(Stacktrace)])
             end,
