@@ -1,7 +1,7 @@
 # beanstalkd-consumer
 
 [![Build Status](https://app.travis-ci.com/silviucpp/beanstalkd-consumer.svg?branch=master)](https://travis-ci.com/github/silviucpp/beanstalkd-consumer)
-[![GitHub](https://img.shields.io/github/license/silviucpp/beanstalkd_consumer)](https://github.com/silviucpp/beanstalkd-consumer/blob/master/LICENSE)
+[![GitHub](https://img.shields.io/github/license/silviucpp/beanstalkd_consumer)](https://github.com/silviucpp/beanstalkd_consumer/blob/master/LICENSE)
 [![Hex.pm](https://img.shields.io/hexpm/v/beanstalkd_consumer)](https://hex.pm/packages/beanstalkd_consumer)
 
 Erlang Consumer Framework for Beanstalkd Work Queue.
