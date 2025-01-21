@@ -33,11 +33,11 @@ start_link(Args) ->
 jobs_queued(Pid) ->
     gen_server:call(Pid, queue_size).
 
-delete(Pid, JobId) ->
-    gen_server:call(Pid, ?PUSH_JOB({delete, JobId})).
+delete(QueueName, JobId) ->
+    push_job(QueueName, {delete, JobId}).
 
-kick_job(Pid, JobId) ->
-    gen_server:call(Pid, ?PUSH_JOB({kick_job, JobId})).
+kick_job(QueueName, JobId) ->
+    push_job(QueueName, {kick_job, JobId}).
 
 init(Args0) ->
     Tube = beanstalkd_utils:get_tube(client, beanstalkd_utils:lookup(tube, Args0)),
@@ -97,6 +97,14 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State, get_timeout_for_state(State)}.
 
 % internals
+
+push_job(QueueName, Msg) ->
+    case erlpool:pid(QueueName) of
+        Pid when is_pid(Pid) ->
+            gen_server:call(Pid, ?PUSH_JOB(Msg));
+        UnexpectedError ->
+            {error, UnexpectedError}
+    end.
 
 consume_job_queue(#state{connection_state = ConnectionStatus, connection_pid = Connection, queue = Queue, queue_count = QueueSize} =  State) ->
     case ConnectionStatus of

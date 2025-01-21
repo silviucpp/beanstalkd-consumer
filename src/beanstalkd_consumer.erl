@@ -236,14 +236,14 @@ worker_loop(QueuePool, ConsumerPid, SelfPid) ->
         {handle_job, JobId, JobPayload, #worker_state{module = Handler, state = HandlerState}} ->
             try
                 Handler:process(JobId, JobPayload, HandlerState),
-                ok = beanstalkd_queue_pool:delete(QueuePool, JobId)
+                ok = beanstalkd_queue:delete(QueuePool, JobId)
             catch
                 ?EXCEPTION(_, {bad_argument, Reason}, _) ->
                     ?LOG_ERROR("handler: ~p -> delete malformed job payload id: ~p reason: ~p payload: ~p", [Handler, JobId, Reason, JobPayload]),
-                    ok = beanstalkd_queue_pool:delete(QueuePool, JobId);
+                    ok = beanstalkd_queue:delete(QueuePool, JobId);
                 ?EXCEPTION(_, reschedule_job, _) ->
                     ?LOG_WARNING("handler: ~p -> retry job payload id: ~p payload: ~p", [Handler, JobId, JobPayload]),
-                    ok = beanstalkd_queue_pool:kick_job(QueuePool, JobId);
+                    ok = beanstalkd_queue:kick_job(QueuePool, JobId);
                 ?EXCEPTION(_, Response, Stacktrace) ->
                     ?LOG_ERROR("handler: ~p -> job will stay in buried state id: ~p payload: ~p response: ~p stacktrace: ~p", [Handler, JobId, JobPayload, Response, ?GET_STACK(Stacktrace)])
             end,
