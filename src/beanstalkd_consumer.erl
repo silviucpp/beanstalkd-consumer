@@ -110,11 +110,11 @@ handle_info(timeout, #state{
     idle_workers = IdleWorkers} = State) ->
     case ConnectionState == up andalso queue:is_empty(IdleWorkers) == false of
         true ->
-            case ebeanstalkd:reserve(ConnectionPid, ?RESERVE_TIMEOUT_SECONDS) of
-                {reserved, JobId, JobPayload} ->
+            case reserve_job(ConnectionPid) of
+                {reserved, JobId, JobTube, JobPayload} ->
                     {{value, WorkerPid}, NewIdleWorkers} = queue:out(IdleWorkers),
 
-                    case get_worker_for_job(IsMultiTube, ConnectionPid, JobId, Callbacks) of
+                    case get_worker_for_job(IsMultiTube, JobTube, ConnectionPid, JobId, Callbacks) of
                         {ok, WorkerState} ->
                             case ebeanstalkd:bury(ConnectionPid, JobId) of
                                 {buried} ->
@@ -192,6 +192,14 @@ code_change(_OldVsn, State, _Extra) ->
 
 % internals
 
+reserve_job(ConnectionPid) ->
+    case ebeanstalkd:reserve(ConnectionPid, ?RESERVE_TIMEOUT_SECONDS) of
+        {reserved, JobId, JobPayload}  ->
+            {reserved, JobId, null, JobPayload};
+        Other ->
+            Other
+    end.
+
 get_state_timeout(#state{conn_state = ConnState, idle_workers = IdleWorkers}) ->
     case ConnState == up andalso queue:is_empty(IdleWorkers) == false of
         true ->
@@ -217,15 +225,19 @@ wait_processes([], ConsumerId) ->
     ?LOG_INFO("consumer: ~p -> all jobs completed ...", [ConsumerId]),
     ok.
 
-get_worker_for_job(true, ConnectionPid, JobId, Callbacks) ->
-    case ebeanstalkd:stats_job(ConnectionPid, JobId) of
-        {ok, Stats} ->
-            TubeName = beanstalkd_utils:lookup(<<"tube">>, Stats),
-            maps:find(TubeName, Callbacks);
-        Error ->
-            Error
+get_worker_for_job(true, TubeName, ConnectionPid, JobId, Callbacks) ->
+    case TubeName of
+        null ->
+            case ebeanstalkd:stats_job(ConnectionPid, JobId) of
+                {ok, Stats} ->
+                    maps:find(beanstalkd_utils:lookup(<<"tube">>, Stats), Callbacks);
+                Error ->
+                    Error
+            end;
+        _ ->
+            maps:find(TubeName, Callbacks)
     end;
-get_worker_for_job(_IsMultiTube, _ConnectionPid, _JobId, Callbacks) ->
+get_worker_for_job(_IsMultiTube, _TubeName, _ConnectionPid, _JobId, Callbacks) ->
     {ok, Callbacks}.
 
 worker_loop(QueuePool, ConsumerPid, SelfPid) ->
