@@ -14,8 +14,11 @@
 
 -export([
     start_link/1,
+
     throw_malformed_job/1,
     throw_reschedule_job/0,
+    throw_reschedule_job/1,
+    throw_reschedule_job_backoff/1,
 
     init/1,
     handle_call/3,
@@ -49,7 +52,15 @@ throw_malformed_job(Reason) ->
     throw({bad_argument, Reason}).
 
 throw_reschedule_job() ->
-    throw(reschedule_job).
+    throw({reschedule_job, 0}).
+
+% works only with: https://github.com/silviucpp/beanstalkd/
+throw_reschedule_job(Delay) ->
+    throw({reschedule_job, Delay}).
+
+% works only with: https://github.com/silviucpp/beanstalkd/
+throw_reschedule_job_backoff(AttemptsLimit) ->
+    throw({reschedule_job_backoff, AttemptsLimit}).
 
 init(Args) ->
     process_flag(trap_exit, true),
@@ -248,16 +259,26 @@ worker_loop(QueuePool, ConsumerPid, SelfPid) ->
         {handle_job, JobId, JobPayload, #worker_state{module = Handler, state = HandlerState}} ->
             try
                 Handler:process(JobId, JobPayload, HandlerState),
-                ok = beanstalkd_queue:delete(QueuePool, JobId)
+                ok = beanstalkd_queue:queue_delete(QueuePool, JobId)
             catch
-                ?EXCEPTION(_, {bad_argument, Reason}, _) ->
-                    ?LOG_ERROR("handler: ~p -> delete malformed job payload id: ~p reason: ~p payload: ~p", [Handler, JobId, Reason, JobPayload]),
-                    ok = beanstalkd_queue:delete(QueuePool, JobId);
-                ?EXCEPTION(_, reschedule_job, _) ->
-                    ?LOG_WARNING("handler: ~p -> retry job payload id: ~p payload: ~p", [Handler, JobId, JobPayload]),
-                    ok = beanstalkd_queue:kick_job(QueuePool, JobId);
-                ?EXCEPTION(_, Response, Stacktrace) ->
-                    ?LOG_ERROR("handler: ~p -> job will stay in buried state id: ~p payload: ~p response: ~p stacktrace: ~p", [Handler, JobId, JobPayload, Response, ?GET_STACK(Stacktrace)])
+                ?EXCEPTION(_, Exception, Stacktrace) ->
+                    case Exception of
+                        {bad_argument, Reason} ->
+                            ?LOG_ERROR("handler: ~p -> delete malformed job: (id: ~p) reason: ~p", [Handler, JobId, Reason]),
+                            ok = beanstalkd_queue:queue_delete(QueuePool, JobId);
+                        {reschedule_job, Delay} ->
+                            ?LOG_WARNING("handler: ~p -> reschedule job (id: ~p) after: ~p seconds.", [Handler, JobId, Delay]),
+                            case Delay of
+                                0 ->
+                                    ok = beanstalkd_queue:queue_kick_job(QueuePool, JobId);
+                                _ ->
+                                    ok = beanstalkd_queue:queue_kick_job_delay(QueuePool, JobId, Delay)
+                            end;
+                        {reschedule_job_backoff, AttemptsLimit} ->
+                            ok = beanstalkd_queue:queue_kick_job_backoff(QueuePool, JobId, Handler, AttemptsLimit);
+                        _ ->
+                            ?LOG_ERROR("handler: ~p -> job (~p) will stay in buried state -> payload: ~p response: ~p stacktrace: ~p", [Handler, JobId, JobPayload, Exception, ?GET_STACK(Stacktrace)])
+                    end
             end,
             worker_loop(QueuePool, ConsumerPid, SelfPid);
         stop ->

@@ -9,8 +9,10 @@
 -export([
     start_link/1,
     jobs_queued/1,
-    delete/2,
-    kick_job/2,
+    queue_delete/2,
+    queue_kick_job/2,
+    queue_kick_job_delay/3,
+    queue_kick_job_backoff/4,
 
     init/1,
     handle_call/3,
@@ -33,11 +35,17 @@ start_link(Args) ->
 jobs_queued(Pid) ->
     gen_server:call(Pid, queue_size).
 
-delete(QueueName, JobId) ->
+queue_delete(QueueName, JobId) ->
     push_job(QueueName, {delete, JobId}).
 
-kick_job(QueueName, JobId) ->
+queue_kick_job(QueueName, JobId) ->
     push_job(QueueName, {kick_job, JobId}).
+
+queue_kick_job_delay(QueueName, JobId, Delay) ->
+    push_job(QueueName, {kick_job_delay, JobId, Delay}).
+
+queue_kick_job_backoff(QueueName, JobId, Handler, AttemptsLimit) ->
+    push_job(QueueName, {kick_job_backoff, JobId, Handler, AttemptsLimit}).
 
 init(Args0) ->
     Tube = beanstalkd_utils:get_tube(client, beanstalkd_utils:lookup(tube, Args0)),
@@ -125,8 +133,8 @@ consume_job_queue(#state{connection_state = ConnectionStatus, connection_pid = C
             {noreply, State}
     end.
 
-run_job(Connection, {JobType, JobId} = Job) ->
-    case run_job(JobType, Connection, JobId) of
+run_job(Connection, Job) ->
+    case internal_run_job(Connection, Job) of
         true ->
             true;
         {not_found} ->
@@ -137,19 +145,40 @@ run_job(Connection, {JobType, JobId} = Job) ->
             false
     end.
 
-run_job(delete, Connection, JobId) ->
+internal_run_job(Connection, {delete, JobId}) ->
     case ebeanstalkd:delete(Connection, JobId) of
         {deleted} ->
             true;
         Result ->
             Result
     end;
-run_job(kick_job, Connection, JobId) ->
+internal_run_job(Connection, {kick_job, JobId}) ->
     case ebeanstalkd:kick_job(Connection, JobId) of
         {kicked} ->
             true;
         Result ->
             Result
+    end;
+internal_run_job(Connection, {kick_job_delay, JobId, Delay}) ->
+    case ebeanstalkd:kick_job_delay(Connection, JobId, Delay) of
+        {kicked} ->
+            true;
+        Result ->
+            Result
+    end;
+internal_run_job(Connection, {kick_job_backoff, JobId, Handler, AttemptsLimit}) ->
+    case ebeanstalkd:stats_job(Connection, JobId) of
+        {ok, List} ->
+            Kicks = beanstalkd_utils:lookup(<<"kicks">>, List),
+            case AttemptsLimit =/= infinity andalso Kicks >= AttemptsLimit of
+                true ->
+                    ?LOG_WARNING("handler: ~p -> reschedule job (id: ~p) limit reached (~p). will stay in buried state.", [Handler, JobId, AttemptsLimit]),
+                    true;
+                _ ->
+                    Delay = erlang:min(Kicks*1, 4),
+                    ?LOG_WARNING("handler: ~p -> reschedule job (id: ~p) after: ~p seconds (attempt: ~p).", [Handler, JobId, Delay, Kicks+1]),
+                    internal_run_job(Connection, {kick_job_delay, JobId, Delay})
+            end
     end.
 
 get_timeout_for_state(#state{connection_state = ConnectionState, queue_count = QueueCount})->

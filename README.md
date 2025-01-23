@@ -25,8 +25,12 @@ This framework provides a simple and configurable solution for managing a pool o
     - If a job throws a `{bad_argument, Reason::any()}` exception, it is deleted (useful for malformed job payloads).
     - If a job throws a `reschedule_job` exception, it is moved back to the ready state to be retried by the consumer.
     - For any other exception, it remains in the buried state for manual review.
-- **Delete/Kick Operations**:All job for kick or delete operations are handled in a separate process and queued. If the connection to the server is lost, these operations are preserved and not discarded.
+- **Delete/Kick Operations**:All kick or delete operations are handled in a separate process and queued. If the connection to the server is lost, these operations are preserved and not discarded.
  
+In case you are using the server fork from [here][2] you can also reschedule the job after a certain number of seconds or using a backoff exponential algorithm (0, 1, 2, 3, 4 seconds) limited to a specific number of attempts. You can do this using:
+  - `beanstalkd_consumer:throw_reschedule_job/1`
+  - `beanstalkd_consumer:throw_reschedule_job_backoff/1`
+
 ## Quick start
 
 All consumers need to implement the `beanstalkd_consumer` behaviour. 
@@ -95,3 +99,4 @@ For each consumer:
 - `concurrent_jobs` - how many concurrent jobs can run in parallel.
 
 [1]:https://github.com/silviucpp/ebeanstalkd
+[2]:https://github.com/silviucpp/beanstalkd/
